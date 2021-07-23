@@ -21,13 +21,6 @@ import seaborn as sns
 
 updateDelay = 0.01
 
-# Subscribe
-impulse.heat.data.subscribe()
-impulse.gas.data.subscribe()
-impulse.gas.msdata.subscribe()
-impulse.waitForControl()
-impulse.sleep(3)
-
 # Parameters
 temperature = 300
 pressureSetpoints = [700, 800]
@@ -45,7 +38,10 @@ prePar = {
     "minChangeDuration" : 2,
     "stableTres" : 0.008,
     "minStableDuration" : 15,
-    "data" : impulse.gas.data
+    "data" : impulse.gas.data,
+    'minAngle' : 0.3,
+    'longPTP' : 20,
+    'shortPTP' : 10
     }
 
 inPar = {
@@ -55,7 +51,10 @@ inPar = {
     "minChangeDuration" : 2,
     "stableTres" : 0.001,
     "minStableDuration" : 15,
-    "data" : impulse.heat.data
+    "data" : impulse.heat.data,
+    'minAngle' : 0.3,
+    'longPTP' : 20,
+    'shortPTP' : 10
     }
 
 postPar = {
@@ -65,7 +64,11 @@ postPar = {
     "minChangeDuration" : 2,
     "stableTres" : 2e-9,
     "minStableDuration" : 15,
-    "data" : impulse.gas.msdata
+    "data" : impulse.gas.msdata,
+    'minAngle' : 0.8,
+    'longPTP' : 40,
+    'shortPTP' : 20
+    
     }
 
 allParInfo = [prePar, inPar, postPar]
@@ -77,10 +80,10 @@ def curveFunc(x, a, b, c):
 initialPtICurvePars = [0,0.17,-0.2]
 initialItPCurvePars = [0,0.07,0.01]
 
-
 timePar = 'experimentDuration'
-visibleHistory = 300 #Seconds
+visibleHistory = 300 #Seconds visible in the real-time graphs
 
+# Define colors for the graphs
 colors = sns.color_palette("hls", 8) # Colors for the real-time graphs
 colorGroups = {}
 colorMaps = ['flare' , 'crest']
@@ -89,82 +92,67 @@ for idx, pressure in enumerate(pressureSetpoints):
     colorPallette = sns.color_palette(colorMap, len(pressureOffsetSetpoints)*iterations)
     colorGroups[pressure]=colorPallette
 
+# Create time delay data and curve result DataFrames
 timeDelayData = pd.DataFrame(columns = ['Cid', 'Pressure', 'PressureOffset', 'Flow', 'setpointChangeTime', 'preChangeTime', 'inChangeTime', 'postChangeTime', 'PtI', 'ItP'])
 timeDelayCurves = pd.DataFrame(index = pressureSetpoints , columns = ['PtI', 'ItP'])
 
+# Subscribe
+impulse.heat.data.subscribe()
+impulse.gas.data.subscribe()
+impulse.gas.msdata.subscribe()
+impulse.waitForControl()
+impulse.sleep(3) # Make sure that there are measurements available
+
 class dataProcessor():
-    def __init__(self, parInfo, a=0, b=0, c=0):
-        # Filter parameters, if a=0 then no filter is applied
-        self.a = a
-        self.b = b
-        self.c = c
+    def __init__(self, parInfo, a=None, b=None, c=None):
+        # Filter parameters, if a = None then no filter is applied
+        self.a, self.b, self.c = a, b, c
         
         self.parInfo = parInfo
         self.state = "start"
+        
         self.RAlen = 30 # Rolling average length in rows
         self.changeSpeedShift = 5 # Change speed calculation step (compare current value with n rows back)
-        self.lookBack = 120 # Number of rows to load at start
+        
         self.dataSource = self.parInfo['data']
-        self.processedData = self.dataSource.getDataFrame(-self.lookBack)
+        self.processedData = self.dataSource.getDataFrame()
         while self.processedData.shape[0]<1:
             print(f"Not enough {parInfo['parameter']} data")
             impulse.sleep(1)
             self.processedData = self.dataSource.getDataFrame()
+            
         self.processedData['RA']=np.nan  
         self.processedData['changeVector']=np.nan      
         self.processedData['absChangeVector']=np.nan   
         self.lastSNFilter = 0
         self.lastSNRA = 0
-        self.lastZ = 0
         self.lastSN = self.processedData.iloc[-1]['sequenceNumber']
     
     
-    def noiseFilterNew(self):
+    def noiseFilter(self):
         if not 'filtered' in self.processedData.columns:
             self.processedData['filtered']=np.nan
         padLen = 20
         currentTime = self.processedData.iloc[-1][timePar]
         toDo = self.processedData[self.processedData[timePar]>currentTime-visibleHistory]
         
-        if toDo.shape[0]>padLen:
+        if toDo[~np.isnan(toDo[self.parInfo['parameter']])].shape[0]>padLen:
             b, a = signal.butter(8, 0.125)
             y = signal.filtfilt(b, a, toDo[self.parInfo['parameter']], method="gust")
             y = y[0:-padLen]
-            print(len(y))
-            print(self.processedData.loc[toDo.iloc[0].name:toDo.iloc[-padLen-1].name])
+
             self.processedData.at[toDo.iloc[0].name:toDo.iloc[-padLen-1].name,'filtered'] = y
             self.lastSNFilter = self.processedData.iloc[-1]['sequenceNumber']      
 
 
-    # def noiseFilter(self):
-    #     if not 'filtered' in self.processedData.columns:
-    #         self.processedData['filtered']=np.nan  
-
-    #     indexesToDo = self.processedData[self.processedData['sequenceNumber']>self.lastSNFilter].index.values.tolist()
-
-    #     b = signal.firwin(self.a,self.b)
-    #     if self.lastSNFilter == 0:
-    #         b = [self.processedData.loc[indexesToDo[0]][self.parInfo['parameter']] for i in range(20)]
-    #         z = signal.lfilter_zi(b, self.c)            
-    #     else:
-    #         z = self.lastZ
-                      
-    #     for idx in indexesToDo:
-    #         result, z = signal.lfilter(b, 1, [self.processedData.loc[idx][self.parInfo['parameter']]], zi=z)
-    #         self.processedData.at[idx,'filtered']=result[0]
-    #         self.lastZ=z
-    #         self.lastSNFilter = self.processedData.iloc[-1]['sequenceNumber']
-
-
     def changeSpeed(self):
-        if 'filtered' in self.processedData.columns:
-            parameter = 'filtered'
-        else:
-            parameter = self.parInfo['parameter']
-            
+        parameter = self.parInfo['parameter']
+        if 'filtered' in self.processedData.columns: parameter = 'filtered' # If filtered data is available, then use that.
+
+
         currentTime = self.processedData.iloc[-1][timePar]
+       
         #indexesToDo = self.processedData[self.processedData['sequenceNumber']>self.lastSNRA][parameter].index.values.tolist()
-        
         indexesToDo = self.processedData[self.processedData[timePar]>currentTime-visibleHistory][parameter].index.values.tolist()
         
         for idx in indexesToDo:
@@ -185,13 +173,10 @@ class dataProcessor():
         newRows = newSN-self.lastSN
 
         if newRows > 0:
-            newRowData = self.dataSource.getDataFrame(-(newRows+10))
-            
+            newRowData = self.dataSource.getDataFrame(-(newRows+10)) # Grab 10 extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
             self.processedData = self.processedData.combine_first(newRowData)
-            
-            if self.a != 0: #If filter parameters have been set
-                self.noiseFilterNew()
-            self.changeSpeed()  
+            if self.a: self.noiseFilter() # If filter parameters have been set then apply filter
+            self.changeSpeed() # Calculate changespeed value
             
         self.lastSN = newSN        
 
@@ -212,15 +197,13 @@ class createPlotWindow():
         plt.tight_layout(pad=0)
         self.fig.suptitle('', fontsize=20)
         
-        # self.fig.set_constrained_layout_pads(w_pad=2./72., h_pad=2./72., hspace=0., wspace=0.)
-        
+        # Graph window layout
         gsCols = self.fig.add_gridspec(1, 3)
         gs1 = gsCols[0].subgridspec(2, 1)
         gs2 = gsCols[1].subgridspec(3, 1)
         gs3 = gsCols[2].subgridspec(2, 1)
         gsCf = gs1[1].subgridspec(3,1, hspace=0)
         
-
         # Realtime measurements plot (top left)
         self.G1P1 = self.fig.add_subplot(gs1[0])
         self.G1P1.margins(y=0)
@@ -240,20 +223,14 @@ class createPlotWindow():
         self.P1C.set_title('Absolute parameter change')   
         self.P1C.yaxis.label.set_color(colors[0])
         self.P1C.tick_params(axis='y', colors=colors[0], **tkw)
-        plt.setp(self.P1C.get_xticklabels(), visible=False)
-        
+        plt.setp(self.P1C.get_xticklabels(), visible=False)       
         self.P2C = self.fig.add_subplot(gsCf[1], sharex=self.G1P1)
         self.P2C.yaxis.label.set_color(colors[0])
         self.P2C.tick_params(axis='y', colors=colors[1], **tkw)
-        plt.setp(self.P2C.get_xticklabels(), visible=False)
-        #yticks = self.P2C.yaxis.get_major_ticks()
-        #yticks[0].label1.set_visible(False)
-        
+        plt.setp(self.P2C.get_xticklabels(), visible=False)     
         self.P3C = self.fig.add_subplot(gsCf[2], sharex=self.G1P1)
         self.P3C.yaxis.label.set_color(colors[0])
         self.P3C.tick_params(axis='y', colors=colors[2], **tkw)
-        #yticks = self.P3C.yaxis.get_major_ticks()
-        #yticks[0].label1.set_visible(False)
         
         # Change data graphs (middle)
         self.preGraph = self.fig.add_subplot(gs2[0])
@@ -284,11 +261,13 @@ class createPlotWindow():
 
         plt.show()
 
+
     def setStatus(self, testno, totaltests, status):
         self.fig.suptitle("Test "+str(testno)+"/"+str(totaltests)+' status: '+status, fontsize=20)
 
+
     def updateChangePlots(self):      
-        extraSpaceRear =25
+        extraSpaceRear = 25
         if timeDelayData.shape[0]>0:
             
             for graph in self.changeGraphs:
@@ -354,6 +333,7 @@ class createPlotWindow():
             self.preGraph.vlines(0, ymin=self.preGraph.get_ylim()[0], ymax=self.preGraph.get_ylim()[1], colors="grey", alpha=1, linewidth=1, linestyle='dashed')
             self.inGraph.vlines(0, ymin=self.inGraph.get_ylim()[0], ymax=self.inGraph.get_ylim()[1], colors="grey", alpha=1, linewidth=1, linestyle='dashed')
             self.postGraph.vlines(0, ymin=self.postGraph.get_ylim()[0], ymax=self.postGraph.get_ylim()[1], colors="grey", alpha=1, linewidth=1, linestyle='dashed')
+
 
     def updateDelayCurves(self):
         while self.curv1.lines:
@@ -453,6 +433,7 @@ class createPlotWindow():
                 
         self.parameterPlots[2].legend(plot1Legend, [allParInfo[0]['parameter'], allParInfo[1]['parameter'], allParInfo[2]['parameter']])
     
+    
     def updatePlots(self):    
         self.updateRtPlots()
         self.updateChangePlots()        
@@ -461,6 +442,7 @@ class createPlotWindow():
     
 plotPanel = createPlotWindow(preDataProcessor, inDataProcessor, postDataProcessor)
    
+
 class controller():
     def __init__(self, preDataCollector, inDataCollector, postDataCollector):
         self.dataCollectors = [preDataCollector,inDataCollector,postDataCollector]
@@ -516,6 +498,7 @@ class controller():
                     print("Could not fit curve to ItP data (yet)")
             plotPanel.updateDelayCurves()
     
+    
     def setPressureConditions(self):
         newState = self.sequence.iloc[self.sequenceStep]
         pressure = newState['P']
@@ -552,7 +535,6 @@ class controller():
         elif 'absChangeVector' in self.dataCollectors[0].processedData.columns and 'absChangeVector' in self.dataCollectors[1].processedData.columns and 'absChangeVector' in self.dataCollectors[2].processedData.columns:
             if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[0].parInfo['stableTres']:
                 if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[1].parInfo['stableTres']:
-                    print(self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max())
                     if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[2].parInfo['stableTres']:
                         self.dataCollectors[0].state = "stable"
                         self.dataCollectors[1].state = "stable"
@@ -620,44 +602,22 @@ class controller():
                         # Determine when the signal started changing
                         x=i
                         startChangeTime = dataCollector.processedData.loc[x][timePar]
-                        
-                        
+                    
                         checkPar = dataCollector.parInfo['parameter']
                         if 'filtered' in dataCollector.processedData.columns: checkPar = 'filtered'
                         
-                        if dataCollector.processedData.iloc[x]['changeVector']>0:
-                            while dataCollector.processedData.iloc[x-5:x-1][checkPar].mean()-dataCollector.processedData.iloc[x][checkPar]>0.2*dataProcessor.parInfo['stableTres']:
-                                x=x-1
+                        longPTP= dataCollector.parInfo['longPTP']
+                        shortPTP = dataCollector.parInfo['shortPTP']
+                        minAngle= dataCollector.parInfo['minAngle']
+                        
+                        longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
+                        shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
+                        while longPTPval/shortPTPval<minAngle:
+                            x-=1
+                            longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
+                            shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
                             startChangeTime = dataCollector.processedData.loc[x][timePar]
-                        elif dataCollector.processedData.iloc[x]['changeVector']<0:
-                            while dataCollector.processedData.iloc[x-5:x-1][checkPar].mean()-dataCollector.processedData.iloc[x][checkPar]<0.2*dataProcessor.parInfo['stableTres']:
-                                x=x-1
-                            startChangeTime = dataCollector.processedData.loc[x][timePar]
-                        
-                        
-                        # prevChange = dataCollector.processedData.loc[x-1]['absChangeVector']
-                        # currentChange = dataCollector.processedData.loc[x]['absChangeVector']
-                        
-                        # while currentChange>dataCollector.parInfo['stableTres'] or prevChange/currentChange:
-                        #     x-=1
-                        #     prevChange = dataCollector.processedData.loc[x-1]['absChangeVector']
-                        #     currentChange = dataCollector.processedData.loc[x]['absChangeVector']
-                        #     startChangeTime = dataCollector.processedData.loc[x][timePar]
-
-                        # longPTP = 20
-                        # shortPTP = 10
-                        
-                        #checkPar = dataCollector.parInfo['parameter']
-                        #if 'filtered' in dataCollector.processedData.columns: checkPar = 'filtered'
-                        
-                        # longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
-                        # shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
-                        # while longPTPval/shortPTPval<0.8:
-                        #     x-=1
-                        #     longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
-                        #     shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
-                        #     startChangeTime = dataCollector.processedData.loc[x][timePar]
-                                
+                                    
                         timeDelayData.at[self.sequenceStep,self.checkChangePositions[self.checkChangePos]]=startChangeTime
                         flagName = 'F'+str(self.sequence.iloc[self.sequenceStep]['P'])+str(self.sequence.iloc[self.sequenceStep]['PO'])+str(self.sequence.iloc[self.sequenceStep]['It'])
                         timeDelayData.at[self.sequenceStep,'Cid']=flagName
@@ -676,6 +636,7 @@ class controller():
                         break
                     self.lastCheckedTime = dataCollector.processedData.loc[i][timePar]
         return foundLast
+    
     
     def saveData(self):
         now = datetime.now()
@@ -719,11 +680,9 @@ class controller():
             self.sequenceStep += 1
             self.state = 0
 
-controller = controller(preDataProcessor,inDataProcessor,postDataProcessor)
-
+controller = controller(preDataProcessor,inDataProcessor,postDataProcessor) # Create the test controller
 
 # Start of test
-
 impulse.heat.set(temperature) # Set the test temperature
 
 while controller.testActive:
@@ -732,12 +691,11 @@ while controller.testActive:
     inDataProcessor.processNew()
     postDataProcessor.processNew()
     
-    # Perform active step in test process
-    controller.work()  
+    controller.work() # Perform active step in test process
     
-    # Update graphs
-    plotPanel.updatePlots()
+    plotPanel.updatePlots() # Update graphs
 
-controller.saveData() # Save the delay data to a file
+impulse.gas.setIOP(0,0,0,'Exhaust',0,'Exhaust',0,'Exhaust') # Stop gas flows
 impulse.heat.set(21) # Set the temperature back to RT
+controller.saveData() # Save the delay data to a file
 impulse.disconnect() # Close the connection with Impulse
