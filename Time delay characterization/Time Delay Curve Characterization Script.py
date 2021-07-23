@@ -9,8 +9,8 @@ Thu Jul 15 16:25:22 2021
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 8})
 
-#import impulsePy as impulse
-import ImpulsePySim as impulse # Simulator
+import impulsePy as impulse
+#import ImpulsePySim as impulse # Simulator
 
 from datetime import datetime
 from scipy import optimize
@@ -30,7 +30,7 @@ impulse.sleep(3)
 
 # Parameters
 temperature = 300
-pressureSetpoints = [700]
+pressureSetpoints = [700, 800]
 pressureOffsetSetpoints = [700, 600, 500, 400, 300]
 iterations = 3 # Measurements per combination of inlet outlet pressure
 
@@ -44,7 +44,7 @@ prePar = {
     "changeTres" : 0.02,
     "minChangeDuration" : 2,
     "stableTres" : 0.008,
-    "minStableDuration" : 40,
+    "minStableDuration" : 15,
     "data" : impulse.gas.data
     }
 
@@ -54,7 +54,7 @@ inPar = {
     "changeTres" : 0.002,
     "minChangeDuration" : 2,
     "stableTres" : 0.001,
-    "minStableDuration" : 30,
+    "minStableDuration" : 15,
     "data" : impulse.heat.data
     }
 
@@ -64,7 +64,7 @@ postPar = {
     "changeTres" : 2.5e-9,
     "minChangeDuration" : 2,
     "stableTres" : 2e-9,
-    "minStableDuration" : 30,
+    "minStableDuration" : 15,
     "data" : impulse.gas.msdata
     }
 
@@ -130,7 +130,9 @@ class dataProcessor():
             b, a = signal.butter(8, 0.125)
             y = signal.filtfilt(b, a, toDo[self.parInfo['parameter']], method="gust")
             y = y[0:-padLen]
-            self.processedData.at[toDo.iloc[0].name:toDo.iloc[-(padLen+1)].name,'filtered'] = y
+            print(len(y))
+            print(self.processedData.loc[toDo.iloc[0].name:toDo.iloc[-padLen-1].name])
+            self.processedData.at[toDo.iloc[0].name:toDo.iloc[-padLen-1].name,'filtered'] = y
             self.lastSNFilter = self.processedData.iloc[-1]['sequenceNumber']      
 
 
@@ -414,7 +416,7 @@ class createPlotWindow():
                 line, = self.parameterPlots[idx].plot(x, y, color=colors[color], label='Filtered '+parameter, alpha=1, linewidth=2, linestyle='solid')
                 ymin = y.min()-0.1*(y.max()-y.min())
                 ymax = y.max()+0.1*(y.max()-y.min())
-                if ymin != ymax and len(x)>0: self.parameterPlots[idx].set_ylim(ymin, ymax)
+                if ymin != ymax and len(y)>0 and not np.isnan(ymin) and not np.isnan(ymax): self.parameterPlots[idx].set_ylim(ymin, ymax)
                 y = plotData[parameter]
                 x = plotData[timePar]
                 self.parameterPlots[idx].plot(x, y, color=colors[color], label=parameter, alpha=0.2, linewidth=1, linestyle='solid')
@@ -550,16 +552,25 @@ class controller():
         elif 'absChangeVector' in self.dataCollectors[0].processedData.columns and 'absChangeVector' in self.dataCollectors[1].processedData.columns and 'absChangeVector' in self.dataCollectors[2].processedData.columns:
             if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[0].parInfo['stableTres']:
                 if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[1].parInfo['stableTres']:
-                    if self.dataCollectors[2].processedData.tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[2].parInfo['stableTres']:
+                    print(self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max())
+                    if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[2].parInfo['stableTres']:
                         self.dataCollectors[0].state = "stable"
                         self.dataCollectors[1].state = "stable"
                         self.dataCollectors[2].state = "stable"
                         print("All are stable!")
                         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"All 3 parameters are stable!")
                         return 1
-                    else: return 0
-                else: return 0
-            else: return 0
+                    else:
+                        print("post not stable")
+                        return 0
+                else:
+                    print("in not stable")
+                    return 0
+            else:
+                print("pre not stable")
+                return 0
+        else:
+            print("did not find the columns")
         return 0
                     
                 
@@ -609,20 +620,43 @@ class controller():
                         # Determine when the signal started changing
                         x=i
                         startChangeTime = dataCollector.processedData.loc[x][timePar]
-        
-                        longPTP = 20
-                        shortPTP = 10
+                        
                         
                         checkPar = dataCollector.parInfo['parameter']
                         if 'filtered' in dataCollector.processedData.columns: checkPar = 'filtered'
                         
-                        longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
-                        shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
-                        while longPTPval/shortPTPval<0.9:
-                            x-=1
-                            longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
-                            shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
+                        if dataCollector.processedData.iloc[x]['changeVector']>0:
+                            while dataCollector.processedData.iloc[x-5:x-1][checkPar].mean()-dataCollector.processedData.iloc[x][checkPar]>0.2*dataProcessor.parInfo['stableTres']:
+                                x=x-1
                             startChangeTime = dataCollector.processedData.loc[x][timePar]
+                        elif dataCollector.processedData.iloc[x]['changeVector']<0:
+                            while dataCollector.processedData.iloc[x-5:x-1][checkPar].mean()-dataCollector.processedData.iloc[x][checkPar]<0.2*dataProcessor.parInfo['stableTres']:
+                                x=x-1
+                            startChangeTime = dataCollector.processedData.loc[x][timePar]
+                        
+                        
+                        # prevChange = dataCollector.processedData.loc[x-1]['absChangeVector']
+                        # currentChange = dataCollector.processedData.loc[x]['absChangeVector']
+                        
+                        # while currentChange>dataCollector.parInfo['stableTres'] or prevChange/currentChange:
+                        #     x-=1
+                        #     prevChange = dataCollector.processedData.loc[x-1]['absChangeVector']
+                        #     currentChange = dataCollector.processedData.loc[x]['absChangeVector']
+                        #     startChangeTime = dataCollector.processedData.loc[x][timePar]
+
+                        # longPTP = 20
+                        # shortPTP = 10
+                        
+                        #checkPar = dataCollector.parInfo['parameter']
+                        #if 'filtered' in dataCollector.processedData.columns: checkPar = 'filtered'
+                        
+                        # longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
+                        # shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
+                        # while longPTPval/shortPTPval<0.8:
+                        #     x-=1
+                        #     longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
+                        #     shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
+                        #     startChangeTime = dataCollector.processedData.loc[x][timePar]
                                 
                         timeDelayData.at[self.sequenceStep,self.checkChangePositions[self.checkChangePos]]=startChangeTime
                         flagName = 'F'+str(self.sequence.iloc[self.sequenceStep]['P'])+str(self.sequence.iloc[self.sequenceStep]['PO'])+str(self.sequence.iloc[self.sequenceStep]['It'])
