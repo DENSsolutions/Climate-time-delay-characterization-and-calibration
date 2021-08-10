@@ -1,6 +1,7 @@
 """
 Time Delay Curve Characterization Script
-Version 1.1
+Version 1.3
+Full test version
 Thu Jul 15 16:25:22 2021
 
 @author: Merijn Pen
@@ -23,9 +24,9 @@ updateDelay = 0.01
 
 # Parameters
 temperature = 300
-pressureSetpoints = [700, 800]
+pressureSetpoints = [700]
 pressureOffsetSetpoints = [700, 600, 500, 400, 300]
-iterations = 3 # Measurements per combination of inlet outlet pressure
+iterations = 3 # Number of measurements per pressure offset
 
 gasStateA = [0.25, 'Reactor', 0, 'Exhaust', 5, 'Reactor']
 gasStateB = [1, 'Reactor', 0, 'Exhaust', 4.25, 'Reactor']
@@ -34,41 +35,31 @@ gasStates = [gasStateA, gasStateB]
 prePar = {
     "parameter": 'gas1FlowMeasured',
     "position" : 0,
-    "changeTres" : 0.02,
+    "changeTreshold" : 0.02,
     "minChangeDuration" : 2,
-    "stableTres" : 0.008,
+    "stableTreshold" : 0.008,
     "minStableDuration" : 15,
-    "data" : impulse.gas.data,
-    'minAngle' : 0.3,
-    'longPTP' : 20,
-    'shortPTP' : 10
+    "data" : impulse.gas.data
     }
 
 inPar = {
     "parameter" : 'powerMeasured',
     "position" : 1,
-    "changeTres" : 0.002,
+    "changeTreshold" : 0.002,
     "minChangeDuration" : 2,
-    "stableTres" : 0.001,
+    "stableTreshold" : 0.001,
     "minStableDuration" : 15,
-    "data" : impulse.heat.data,
-    'minAngle' : 0.3,
-    'longPTP' : 20,
-    'shortPTP' : 10
+    "data" : impulse.heat.data
     }
 
 postPar = {
     "parameter" : 'Methane',
     "position" : 2,
-    "changeTres" : 2.5e-9,
+    "changeTreshold" : 2.5e-9,
     "minChangeDuration" : 2,
-    "stableTres" : 2e-9,
+    "stableTreshold" : 2e-9,
     "minStableDuration" : 15,
-    "data" : impulse.gas.msdata,
-    'minAngle' : 0.8,
-    'longPTP' : 40,
-    'shortPTP' : 20
-    
+    "data" : impulse.gas.msdata   
     }
 
 allParInfo = [prePar, inPar, postPar]
@@ -101,7 +92,7 @@ impulse.heat.data.subscribe()
 impulse.gas.data.subscribe()
 impulse.gas.msdata.subscribe()
 impulse.waitForControl()
-impulse.sleep(3) # Make sure that there are measurements available
+impulse.sleep(3) # Wait 3 seconds to make sure that there are measurements available
 
 class dataProcessor():
     def __init__(self, parInfo, a=None, b=None, c=None):
@@ -134,14 +125,13 @@ class dataProcessor():
             self.processedData['filtered']=np.nan
         padLen = 20
         currentTime = self.processedData.iloc[-1][timePar]
-        toDo = self.processedData[self.processedData[timePar]>currentTime-visibleHistory]
+        toDo = self.processedData[self.processedData[timePar]>currentTime-visibleHistory] # all visible data in the graph will be refiltered
         
         if toDo[~np.isnan(toDo[self.parInfo['parameter']])].shape[0]>padLen:
             b, a = signal.butter(8, 0.125)
             y = signal.filtfilt(b, a, toDo[self.parInfo['parameter']], method="gust")
             y = y[0:-padLen]
-
-            self.processedData.at[toDo.iloc[0].name:toDo.iloc[-padLen-1].name,'filtered'] = y
+            self.processedData.at[toDo.iloc[0].name:toDo.iloc[0].name+len(y)-1,'filtered'] = y
             self.lastSNFilter = self.processedData.iloc[-1]['sequenceNumber']      
 
 
@@ -149,15 +139,11 @@ class dataProcessor():
         parameter = self.parInfo['parameter']
         if 'filtered' in self.processedData.columns: parameter = 'filtered' # If filtered data is available, then use that.
 
-
         currentTime = self.processedData.iloc[-1][timePar]
-       
-        #indexesToDo = self.processedData[self.processedData['sequenceNumber']>self.lastSNRA][parameter].index.values.tolist()
         indexesToDo = self.processedData[self.processedData[timePar]>currentTime-visibleHistory][parameter].index.values.tolist()
         
         for idx in indexesToDo:
             if not np.isnan(self.processedData.loc[idx][parameter]):
-
                 if self.processedData.loc[:idx].shape[0]>self.RAlen:
                     self.processedData.at[idx,'RA']=np.nanmean(self.processedData.loc[idx-self.RAlen:idx][parameter])
                 
@@ -175,10 +161,9 @@ class dataProcessor():
         if newRows > 0:
             newRowData = self.dataSource.getDataFrame(-(newRows+10)) # Grab 10 extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
             self.processedData = self.processedData.combine_first(newRowData)
-            if self.a: self.noiseFilter() # If filter parameters have been set then apply filter
+            if self.a and self.b and self.c: self.noiseFilter() # If filter parameters have been set then apply filter
             self.changeSpeed() # Calculate changespeed value
-            
-        self.lastSN = newSN        
+            self.lastSN = newSN        
 
 preDataProcessor = dataProcessor(prePar)
 inDataProcessor = dataProcessor(inPar)
@@ -192,7 +177,7 @@ class createPlotWindow():
 
         tkw = dict(size=4, width=1.5)
 
-        self.fig = plt.figure()
+        self.fig = plt.figure(figsize=(13, 10), dpi=80)
         self.fig.canvas.set_window_title('Time Delay Curve Characterization Script')
         plt.tight_layout(pad=0)
         self.fig.suptitle('', fontsize=20)
@@ -202,7 +187,7 @@ class createPlotWindow():
         gs1 = gsCols[0].subgridspec(2, 1)
         gs2 = gsCols[1].subgridspec(3, 1)
         gs3 = gsCols[2].subgridspec(2, 1)
-        gsCf = gs1[1].subgridspec(3,1, hspace=0)
+        gsCf = gs1[1].subgridspec(3, 1, hspace=0)
         
         # Realtime measurements plot (top left)
         self.G1P1 = self.fig.add_subplot(gs1[0])
@@ -420,15 +405,15 @@ class createPlotWindow():
                 y = plotData['absChangeVector']
                 x = plotData[timePar]
                 self.parameterChangePlots[idx].plot(x, y, color=colors[color], label=parameter, alpha=1, linewidth=2, linestyle='-')
-                self.parameterChangePlots[idx].axhline(par['changeTres'], color=colors[color], label='Change treshold: '+ str(par['changeTres']), alpha=0.5, linestyle='dashed')
-                self.parameterChangePlots[idx].axhline(par['stableTres'], color=colors[color], label='Stable treshold: '+ str(par['stableTres']), alpha=0.5, linestyle='dotted')
+                self.parameterChangePlots[idx].axhline(par['changeTreshold'], color=colors[color], label='Change treshold: '+ str(par['changeTreshold']), alpha=0.5, linestyle='dashed')
+                self.parameterChangePlots[idx].axhline(par['stableTreshold'], color=colors[color], label='Stable treshold: '+ str(par['stableTreshold']), alpha=0.5, linestyle='dotted')
                 self.parameterChangePlots[idx].set_xlim(plotData[timePar].min(),plotData[timePar].max())
                 self.parameterChangePlots[idx].legend(loc='upper left')
 
-                if plotData['absChangeVector'].max()>par['changeTres']:
+                if plotData['absChangeVector'].max()>par['changeTreshold']:
                     ymax = plotData['absChangeVector'].max()
                 else:
-                    ymax = par['changeTres']
+                    ymax = par['changeTreshold']
                 self.parameterChangePlots[idx].set_ylim(0, ymax)
                 
         self.parameterPlots[2].legend(plot1Legend, [allParInfo[0]['parameter'], allParInfo[1]['parameter'], allParInfo[2]['parameter']])
@@ -453,6 +438,7 @@ class controller():
         self.lastCheckedTime = 0
         self.detectChangeTimeoutCounter = 0
         self.detectChangeTimeoutVal = 2000
+        self.noiseRangeMeasurementStart = 0
         
         # New way of controlling the tests
         self.sequence = pd.DataFrame(columns = ['P', 'PO', 'It', 'State'])
@@ -533,9 +519,9 @@ class controller():
             print("Not enough changevector data yet...")
         
         elif 'absChangeVector' in self.dataCollectors[0].processedData.columns and 'absChangeVector' in self.dataCollectors[1].processedData.columns and 'absChangeVector' in self.dataCollectors[2].processedData.columns:
-            if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[0].parInfo['stableTres']:
-                if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[1].parInfo['stableTres']:
-                    if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[2].parInfo['stableTres']:
+            if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[0].parInfo['stableTreshold']:
+                if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[1].parInfo['stableTreshold']:
+                    if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[2].parInfo['stableTreshold']:
                         self.dataCollectors[0].state = "stable"
                         self.dataCollectors[1].state = "stable"
                         self.dataCollectors[2].state = "stable"
@@ -554,7 +540,42 @@ class controller():
         else:
             print("did not find the columns")
         return 0
-                    
+    
+    
+    def measureNoiseRange(self):
+        noiseRangeMeasurementLength = 10 #seconds
+        if self.noiseRangeMeasurementStart == 0:
+            plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Measuring noise range")
+            self.noiseRangeMeasurementStart = self.dataCollectors[2].processedData.iloc[-1][timePar]
+            return 0
+        else:
+            noiseRanges = []
+            notEnoughData = False
+            for i in range(3):            
+                measurementData = self.dataCollectors[i].processedData[self.dataCollectors[i].processedData[timePar]>=self.noiseRangeMeasurementStart]
+                checkPar = self.dataCollectors[i].parInfo['parameter']
+                if 'filtered' in self.dataCollectors[i].processedData.columns: checkPar = 'filtered'
+                measurementDataNotna = measurementData[measurementData[checkPar].notna()]
+                if measurementDataNotna.shape[0]>1:
+                    if measurementDataNotna.iloc[-1][timePar]-measurementDataNotna.iloc[0][timePar]>noiseRangeMeasurementLength:
+                        minVal = measurementDataNotna[checkPar].min()
+                        maxVal = measurementDataNotna[checkPar].max()
+                        offset = (maxVal-minVal)
+                        noiseRange = [minVal-offset, maxVal+offset]
+                        noiseRanges.extend([noiseRange])                     
+                    else: 
+                        notEnoughData = True
+                        break
+                else:
+                    notEnoughData = True
+                    break
+            if notEnoughData == False:
+                self.noiseRanges = noiseRanges
+                self.noiseRangeMeasurementStart = 0
+                return 1
+            else:
+                return 0
+
                 
     def initiateChange(self):
         print("Initiating gas change")
@@ -594,7 +615,7 @@ class controller():
             endRow = indices[-1]
             for i in np.arange(startRow, endRow, 1):
                 if not np.isnan(dataCollector.processedData.loc[i]['absChangeVector']):
-                    if dataCollector.processedData.loc[i-dataCollector.parInfo['minChangeDuration']:i]['absChangeVector'].min() > dataCollector.parInfo['changeTres'] and dataCollector.state != "changing":
+                    if dataCollector.processedData.loc[i-dataCollector.parInfo['minChangeDuration']:i]['absChangeVector'].min() > dataCollector.parInfo['changeTreshold'] and dataCollector.state != "changing":
                         print(dataCollector.parInfo['parameter'] + "change detected!")
                         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],dataCollector.parInfo['parameter'] + "change detected!")
                         dataCollector.state = "changing"
@@ -606,18 +627,23 @@ class controller():
                         checkPar = dataCollector.parInfo['parameter']
                         if 'filtered' in dataCollector.processedData.columns: checkPar = 'filtered'
                         
-                        longPTP= dataCollector.parInfo['longPTP']
-                        shortPTP = dataCollector.parInfo['shortPTP']
-                        minAngle= dataCollector.parInfo['minAngle']
-                        
-                        longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
-                        shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
-                        while longPTPval/shortPTPval<minAngle:
-                            x-=1
-                            longPTPval = np.ptp(dataCollector.processedData.loc[x-longPTP:x-shortPTP][checkPar], axis = 0)
-                            shortPTPval = np.ptp(dataCollector.processedData.loc[x-shortPTP:x][checkPar], axis = 0)
+                        position = dataCollector.parInfo['position']
+                        if dataCollector.processedData.loc[x][checkPar]>self.noiseRanges[position][1]:
+                            while dataCollector.processedData.loc[x-1][checkPar]>self.noiseRanges[position][1]:
+                                x-=1
+                            # while dataCollector.processedData.loc[x-1][checkPar]<dataCollector.processedData.loc[x][checkPar]:
+                            #     x-=1
                             startChangeTime = dataCollector.processedData.loc[x][timePar]
-                                    
+                            
+                        else:
+                            while dataCollector.processedData.loc[x-1][checkPar]<self.noiseRanges[position][0]:
+                                print(f'{dataCollector.processedData.loc[x-1][checkPar]} {self.noiseRanges[position][1]}')
+                                x-=1
+                            # while dataCollector.processedData.loc[x-1][checkPar]>dataCollector.processedData.loc[x][checkPar]:
+                                #     x-=1
+                            startChangeTime = dataCollector.processedData.loc[x][timePar]                       
+                        
+                        
                         timeDelayData.at[self.sequenceStep,self.checkChangePositions[self.checkChangePos]]=startChangeTime
                         flagName = 'F'+str(self.sequence.iloc[self.sequenceStep]['P'])+str(self.sequence.iloc[self.sequenceStep]['PO'])+str(self.sequence.iloc[self.sequenceStep]['It'])
                         timeDelayData.at[self.sequenceStep,'Cid']=flagName
@@ -654,10 +680,12 @@ class controller():
         elif self.state == 1: 
             self.state += self.waitForPressures()        
         elif self.state == 2:
-            self.state += self.waitUntilStable()        
+            self.state += self.waitUntilStable()  
         elif self.state == 3:
+            self.state += self.measureNoiseRange()  
+        elif self.state == 4:
             self.state += self.initiateChange()      
-        elif self.state == 4: 
+        elif self.state == 5: 
             self.state += self.detectChange()
             self.detectChangeTimeoutCounter +=1
             if self.detectChangeTimeoutVal - self.detectChangeTimeoutCounter < 10:
@@ -667,7 +695,7 @@ class controller():
                     print("Change not detected before timeout, restarting measurement")
                     plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Change not detected before timeout, restarting measurement")
                     self.state = 0
-        elif self.state == 5:
+        elif self.state == 6:
             if self.sequenceStep+1 > self.sequence.shape[0]-1:
                 print("Last test finished")
                 plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Last test finished.")
@@ -676,7 +704,7 @@ class controller():
                 if self.sequence.iloc[self.sequenceStep+1]['nPO']==1: #If the next test will be at new pressures, no need to wait for stable conditions
                     self.state+=1
                 else: self.state += self.waitUntilStable()     
-        elif self.state == 6: # Update sequence number
+        elif self.state == 7: # Update sequence number
             self.sequenceStep += 1
             self.state = 0
 
