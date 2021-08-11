@@ -250,7 +250,7 @@ class msDataGenerator():
             else: target = lastVal
             targetPoint = target / 5000000
             newVal = lastVal + ((targetPoint - lastVal) * 0.01)
-            newVal = newVal + (((random.random()-0.5)/500000000))
+            newVal = newVal + (((random.random()-0.5)/5000000000))
             return newVal   
     
     def generateNewData(self):

@@ -1,8 +1,7 @@
 """
 Time Delay Curve Characterization Script
-Version 1.3
-Full test version
-Thu Jul 15 16:25:22 2021
+Version 1.4
+Wed Aug 11 10:20:00 2021
 
 @author: Merijn Pen
 """
@@ -529,16 +528,16 @@ class controller():
                         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"All 3 parameters are stable!")
                         return 1
                     else:
-                        print("post not stable")
+                        print("Post-TEM not stable")
                         return 0
                 else:
-                    print("in not stable")
+                    print("In-TEM not stable")
                     return 0
             else:
-                print("pre not stable")
+                print("Pre-TEM not stable")
                 return 0
         else:
-            print("did not find the columns")
+            print("Did not find the columns")
         return 0
     
     
@@ -560,7 +559,7 @@ class controller():
                     if measurementDataNotna.iloc[-1][timePar]-measurementDataNotna.iloc[0][timePar]>noiseRangeMeasurementLength:
                         minVal = measurementDataNotna[checkPar].min()
                         maxVal = measurementDataNotna[checkPar].max()
-                        offset = (maxVal-minVal)
+                        offset = (maxVal-minVal)/5 # Some margin in case the signal has drifted outside of the original boundaries. If the start of the change is detected too far ahead of the change, then increase this value.
                         noiseRange = [minVal-offset, maxVal+offset]
                         noiseRanges.extend([noiseRange])                     
                     else: 
@@ -629,17 +628,16 @@ class controller():
                         
                         position = dataCollector.parInfo['position']
                         if dataCollector.processedData.loc[x][checkPar]>self.noiseRanges[position][1]:
-                            while dataCollector.processedData.loc[x-1][checkPar]>self.noiseRanges[position][1]:
+                            while dataCollector.processedData.loc[x][checkPar]>self.noiseRanges[position][1]:
                                 x-=1
-                            # while dataCollector.processedData.loc[x-1][checkPar]<dataCollector.processedData.loc[x][checkPar]:
+                            # while dataCollector.processedData.loc[x][checkPar]<dataCollector.processedData.loc[x][checkPar]:
                             #     x-=1
                             startChangeTime = dataCollector.processedData.loc[x][timePar]
                             
                         else:
-                            while dataCollector.processedData.loc[x-1][checkPar]<self.noiseRanges[position][0]:
-                                print(f'{dataCollector.processedData.loc[x-1][checkPar]} {self.noiseRanges[position][1]}')
+                            while dataCollector.processedData.loc[x][checkPar]<self.noiseRanges[position][0]:
                                 x-=1
-                            # while dataCollector.processedData.loc[x-1][checkPar]>dataCollector.processedData.loc[x][checkPar]:
+                            # while dataCollector.processedData.loc[x][checkPar]>dataCollector.processedData.loc[x][checkPar]:
                                 #     x-=1
                             startChangeTime = dataCollector.processedData.loc[x][timePar]                       
                         
