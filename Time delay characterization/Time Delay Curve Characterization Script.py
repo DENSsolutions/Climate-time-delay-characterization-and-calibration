@@ -1,6 +1,6 @@
 """
 Time Delay Curve Characterization Script
-Version 1.4
+Version 1.5
 Wed Aug 11 10:20:00 2021
 
 @author: Merijn Pen
@@ -9,13 +9,12 @@ Wed Aug 11 10:20:00 2021
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 8})
 
-import impulsePy as impulse
-#import ImpulsePySim as impulse # Simulator
+#import impulsePy as impulse
+import ImpulsePySim as impulse # Simulator
 
 from datetime import datetime
 from scipy import optimize
 import pandas as pd
-from scipy import signal
 import numpy as np
 import seaborn as sns
 
@@ -34,18 +33,19 @@ gasStates = [gasStateA, gasStateB]
 prePar = {
     "parameter": 'gas1FlowMeasured',
     "position" : 0,
-    "changeTreshold" : 0.02,
-    "minChangeDuration" : 2,
+    'rollingAverageWindow' : 1,
+    "changeTreshold" : 0.01,
     "stableTreshold" : 0.008,
     "minStableDuration" : 15,
     "data" : impulse.gas.data
+    
     }
 
 inPar = {
     "parameter" : 'powerMeasured',
     "position" : 1,
+    'rollingAverageWindow' : 10,
     "changeTreshold" : 0.002,
-    "minChangeDuration" : 2,
     "stableTreshold" : 0.001,
     "minStableDuration" : 15,
     "data" : impulse.heat.data
@@ -54,9 +54,9 @@ inPar = {
 postPar = {
     "parameter" : 'Methane',
     "position" : 2,
-    "changeTreshold" : 2.5e-9,
-    "minChangeDuration" : 2,
-    "stableTreshold" : 2e-9,
+    'rollingAverageWindow' : 20,
+    "changeTreshold" : 0.2e-8,
+    "stableTreshold" : 0.1e-8,
     "minStableDuration" : 15,
     "data" : impulse.gas.msdata   
     }
@@ -94,15 +94,10 @@ impulse.waitForControl()
 impulse.sleep(3) # Wait 3 seconds to make sure that there are measurements available
 
 class dataProcessor():
-    def __init__(self, parInfo, a=None, b=None, c=None):
-        # Filter parameters, if a = None then no filter is applied
-        self.a, self.b, self.c = a, b, c
+    def __init__(self, parInfo):
         
         self.parInfo = parInfo
         self.state = "start"
-        
-        self.RAlen = 30 # Rolling average length in rows
-        self.changeSpeedShift = 5 # Change speed calculation step (compare current value with n rows back)
         
         self.dataSource = self.parInfo['data']
         self.processedData = self.dataSource.getDataFrame()
@@ -111,62 +106,33 @@ class dataProcessor():
             impulse.sleep(1)
             self.processedData = self.dataSource.getDataFrame()
             
-        self.processedData['RA']=np.nan  
-        self.processedData['changeVector']=np.nan      
-        self.processedData['absChangeVector']=np.nan   
+        self.processedData['Ra'] = self.processedData[self.parInfo['parameter']].rolling(window=self.parInfo['parameter'], win_type='triang', center=True).mean()
+        self.processedData['absRaDiff']=abs(self.processedData['Ra'].diff())
+        self.processedData['diff']=self.processedData[self.parInfo['parameter']].diff()
+        self.processedData['diffSum']=self.processedData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=True).sum()
+        self.processedData['absDiffSum']= abs(self.processedData['diffSum'])
+        
         self.lastSNFilter = 0
         self.lastSNRA = 0
         self.lastSN = self.processedData.iloc[-1]['sequenceNumber']
     
-    
-    def noiseFilter(self):
-        if not 'filtered' in self.processedData.columns:
-            self.processedData['filtered']=np.nan
-        padLen = 20
-        currentTime = self.processedData.iloc[-1][timePar]
-        toDo = self.processedData[self.processedData[timePar]>currentTime-visibleHistory] # all visible data in the graph will be refiltered
-        
-        if toDo[~np.isnan(toDo[self.parInfo['parameter']])].shape[0]>padLen:
-            b, a = signal.butter(8, 0.125)
-            y = signal.filtfilt(b, a, toDo[self.parInfo['parameter']], method="gust")
-            y = y[0:-padLen]
-            self.processedData.at[toDo.iloc[0].name:toDo.iloc[0].name+len(y)-1,'filtered'] = y
-            self.lastSNFilter = self.processedData.iloc[-1]['sequenceNumber']      
-
-
-    def changeSpeed(self):
-        parameter = self.parInfo['parameter']
-        if 'filtered' in self.processedData.columns: parameter = 'filtered' # If filtered data is available, then use that.
-
-        currentTime = self.processedData.iloc[-1][timePar]
-        indexesToDo = self.processedData[self.processedData[timePar]>currentTime-visibleHistory][parameter].index.values.tolist()
-        
-        for idx in indexesToDo:
-            if not np.isnan(self.processedData.loc[idx][parameter]):
-                if self.processedData.loc[:idx].shape[0]>self.RAlen:
-                    self.processedData.at[idx,'RA']=np.nanmean(self.processedData.loc[idx-self.RAlen:idx][parameter])
-                
-                if idx - self.changeSpeedShift in self.processedData['RA'].index.values.tolist():
-                    if not np.isnan(self.processedData.at[idx-self.changeSpeedShift,'RA']):
-                            self.processedData.at[idx,'changeVector']=self.processedData.loc[idx]['RA']-self.processedData.loc[idx-self.changeSpeedShift]['RA']
-                            self.processedData.at[idx,'absChangeVector']=abs(self.processedData.loc[idx]['changeVector'])
-                self.lastSNRA = self.processedData.loc[idx, 'sequenceNumber']                                  
-
-
     def processNew(self):
         newSN = self.dataSource.getLastData()['sequenceNumber']
         newRows = newSN-self.lastSN
 
         if newRows > 0:
-            newRowData = self.dataSource.getDataFrame(-(newRows+10)) # Grab 10 extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
+            newRowData = self.dataSource.getDataFrame(-(newRows+20)) # Grab 10 extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
+            newRowData['Ra'] = newRowData[self.parInfo['parameter']].rolling(window=self.parInfo['parameter'], win_type='triang', center=True).mean()
+            newRowData['absRaDiff']=abs(newRowData['Ra'].diff())
+            newRowData['diff']=newRowData[self.parInfo['parameter']].diff()
+            newRowData['diffSum']=newRowData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=True).sum()
+            newRowData['absDiffSum']= abs(newRowData['diffSum'])
             self.processedData = self.processedData.combine_first(newRowData)
-            if self.a and self.b and self.c: self.noiseFilter() # If filter parameters have been set then apply filter
-            self.changeSpeed() # Calculate changespeed value
             self.lastSN = newSN        
 
 preDataProcessor = dataProcessor(prePar)
 inDataProcessor = dataProcessor(inPar)
-postDataProcessor = dataProcessor(postPar, 20, 0.1, 4) # Filter values tested
+postDataProcessor = dataProcessor(postPar) # Filter values tested
 
 class createPlotWindow():
     def __init__(self, preDataProcessor, inDataProcessor, postDataProcessor):
@@ -400,8 +366,8 @@ class createPlotWindow():
             while self.parameterChangePlots[idx].lines:
                 self.parameterChangePlots[idx].lines.pop(0)
             
-            if 'absChangeVector' in plotData.columns:
-                y = plotData['absChangeVector']
+            if 'absDiffSum' in plotData.columns:
+                y = plotData['absDiffSum']
                 x = plotData[timePar]
                 self.parameterChangePlots[idx].plot(x, y, color=colors[color], label=parameter, alpha=1, linewidth=2, linestyle='-')
                 self.parameterChangePlots[idx].axhline(par['changeTreshold'], color=colors[color], label='Change treshold: '+ str(par['changeTreshold']), alpha=0.5, linestyle='dashed')
@@ -409,8 +375,8 @@ class createPlotWindow():
                 self.parameterChangePlots[idx].set_xlim(plotData[timePar].min(),plotData[timePar].max())
                 self.parameterChangePlots[idx].legend(loc='upper left')
 
-                if plotData['absChangeVector'].max()>par['changeTreshold']:
-                    ymax = plotData['absChangeVector'].max()
+                if plotData['absDiffSum'].max()>par['changeTreshold']:
+                    ymax = plotData['absDiffSum'].max()
                 else:
                     ymax = par['changeTreshold']
                 self.parameterChangePlots[idx].set_ylim(0, ymax)
@@ -511,16 +477,16 @@ class controller():
         print("Waiting for stable conditions")
         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Waiting for stable conditions")
         
-        if any([(self.dataCollectors[0].processedData[self.dataCollectors[0].processedData['absChangeVector'].notna()].shape[0]<self.dataCollectors[0].parInfo['minStableDuration']),
-               (self.dataCollectors[1].processedData[self.dataCollectors[1].processedData['absChangeVector'].notna()].shape[0]<self.dataCollectors[1].parInfo['minStableDuration']),
-               (self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].shape[0]<self.dataCollectors[2].parInfo['minStableDuration'])
+        if any([(self.dataCollectors[0].processedData[self.dataCollectors[0].processedData['absDiffSum'].notna()].shape[0]<self.dataCollectors[0].parInfo['minStableDuration']),
+               (self.dataCollectors[1].processedData[self.dataCollectors[1].processedData['absDiffSum'].notna()].shape[0]<self.dataCollectors[1].parInfo['minStableDuration']),
+               (self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absDiffSum'].notna()].shape[0]<self.dataCollectors[2].parInfo['minStableDuration'])
                ]):
             print("Not enough changevector data yet...")
         
-        elif 'absChangeVector' in self.dataCollectors[0].processedData.columns and 'absChangeVector' in self.dataCollectors[1].processedData.columns and 'absChangeVector' in self.dataCollectors[2].processedData.columns:
-            if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[0].parInfo['stableTreshold']:
-                if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[1].parInfo['stableTreshold']:
-                    if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absChangeVector'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absChangeVector'].max() < self.dataCollectors[2].parInfo['stableTreshold']:
+        elif 'absDiffSum' in self.dataCollectors[0].processedData.columns and 'absDiffSum' in self.dataCollectors[1].processedData.columns and 'absDiffSum' in self.dataCollectors[2].processedData.columns:
+            if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[0].parInfo['stableTreshold']:
+                if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[1].parInfo['stableTreshold']:
+                    if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absDiffSum'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[2].parInfo['stableTreshold']:
                         self.dataCollectors[0].state = "stable"
                         self.dataCollectors[1].state = "stable"
                         self.dataCollectors[2].state = "stable"
@@ -613,8 +579,8 @@ class controller():
             startRow = indices[0]
             endRow = indices[-1]
             for i in np.arange(startRow, endRow, 1):
-                if not np.isnan(dataCollector.processedData.loc[i]['absChangeVector']):
-                    if dataCollector.processedData.loc[i-dataCollector.parInfo['minChangeDuration']:i]['absChangeVector'].min() > dataCollector.parInfo['changeTreshold'] and dataCollector.state != "changing":
+                if not np.isnan(dataCollector.processedData.loc[i]['absDiffSum']):
+                    if dataCollector.processedData.loc[i-dataCollector.parInfo['minChangeDuration']:i]['absDiffSum'].min() > dataCollector.parInfo['changeTreshold'] and dataCollector.state != "changing":
                         print(dataCollector.parInfo['parameter'] + "change detected!")
                         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],dataCollector.parInfo['parameter'] + "change detected!")
                         dataCollector.state = "changing"
