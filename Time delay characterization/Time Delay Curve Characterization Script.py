@@ -106,7 +106,7 @@ class dataProcessor():
             impulse.sleep(1)
             self.processedData = self.dataSource.getDataFrame()
             
-        self.processedData['Ra'] = self.processedData[self.parInfo['parameter']].rolling(window=self.parInfo['parameter'], win_type='triang', center=True).mean()
+        self.processedData['Ra'] = self.processedData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=True).mean()
         self.processedData['absRaDiff']=abs(self.processedData['Ra'].diff())
         self.processedData['diff']=self.processedData[self.parInfo['parameter']].diff()
         self.processedData['diffSum']=self.processedData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=True).sum()
@@ -122,7 +122,7 @@ class dataProcessor():
 
         if newRows > 0:
             newRowData = self.dataSource.getDataFrame(-(newRows+20)) # Grab 10 extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
-            newRowData['Ra'] = newRowData[self.parInfo['parameter']].rolling(window=self.parInfo['parameter'], win_type='triang', center=True).mean()
+            newRowData['Ra'] = newRowData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=True).mean()
             newRowData['absRaDiff']=abs(newRowData['Ra'].diff())
             newRowData['diff']=newRowData[self.parInfo['parameter']].diff()
             newRowData['diffSum']=newRowData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=True).sum()
@@ -404,6 +404,8 @@ class controller():
         self.detectChangeTimeoutCounter = 0
         self.detectChangeTimeoutVal = 2000
         self.noiseRangeMeasurementStart = 0
+        self.initiateTime=0
+        self.lastDetectionTime=0
         
         # New way of controlling the tests
         self.sequence = pd.DataFrame(columns = ['P', 'PO', 'It', 'State'])
@@ -506,42 +508,7 @@ class controller():
             print("Did not find the columns")
         return 0
     
-    
-    def measureNoiseRange(self):
-        noiseRangeMeasurementLength = 10 #seconds
-        if self.noiseRangeMeasurementStart == 0:
-            plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Measuring noise range")
-            self.noiseRangeMeasurementStart = self.dataCollectors[2].processedData.iloc[-1][timePar]
-            return 0
-        else:
-            noiseRanges = []
-            notEnoughData = False
-            for i in range(3):            
-                measurementData = self.dataCollectors[i].processedData[self.dataCollectors[i].processedData[timePar]>=self.noiseRangeMeasurementStart]
-                checkPar = self.dataCollectors[i].parInfo['parameter']
-                if 'filtered' in self.dataCollectors[i].processedData.columns: checkPar = 'filtered'
-                measurementDataNotna = measurementData[measurementData[checkPar].notna()]
-                if measurementDataNotna.shape[0]>1:
-                    if measurementDataNotna.iloc[-1][timePar]-measurementDataNotna.iloc[0][timePar]>noiseRangeMeasurementLength:
-                        minVal = measurementDataNotna[checkPar].min()
-                        maxVal = measurementDataNotna[checkPar].max()
-                        offset = (maxVal-minVal)/5 # Some margin in case the signal has drifted outside of the original boundaries. If the start of the change is detected too far ahead of the change, then increase this value.
-                        noiseRange = [minVal-offset, maxVal+offset]
-                        noiseRanges.extend([noiseRange])                     
-                    else: 
-                        notEnoughData = True
-                        break
-                else:
-                    notEnoughData = True
-                    break
-            if notEnoughData == False:
-                self.noiseRanges = noiseRanges
-                self.noiseRangeMeasurementStart = 0
-                return 1
-            else:
-                return 0
-
-                
+                   
     def initiateChange(self):
         print("Initiating gas change")
         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Initiating gas change")
@@ -553,6 +520,8 @@ class controller():
         impulse.heat.data.setFlag(flagName)
         impulse.gas.msdata.setFlag(flagName)
         initiateTime = impulse.gas.data.getNewData()[timePar]
+        self.initiateTime = initiateTime
+        self.lastDetectionTime = initiateTime
         self.lastCheckedTime = initiateTime
         currentSetpoint = impulse.gas.data.getLastData()
         if currentSetpoint['gas1FlowSetpoint']!=gasStateA[0]:
@@ -565,68 +534,55 @@ class controller():
         self.checkChangePos = 0
         return 1
 
+
+    def findChangeStart(self, dataCollector, initTime, changeTime):
+        parInfo = dataCollector.parInfo
+        beforeBuffer = 4 #seconds
+        dataRange = dataCollector.processedData[(dataCollector.processedData[timePar].gt(initTime-beforeBuffer)) & (dataCollector.processedData[timePar].lt(changeTime))]
+        dataRange['changing']=dataRange['absDiffSum'].gt(parInfo['changeTreshold'])
+        dataRange['changeStartStop'] = (dataRange['changing'] == dataRange['changing'].shift(1))
+        changeTimes = dataRange[dataRange['changeStartStop']==False]
     
+        if changeTimes.shape[0]>0:
+            changeTime = changeTimes.iloc[-1][timePar]
+            return changeTime
+        else:
+            print("no change found")
+            return 0
+
+
     def detectChange(self):
         dataCollector = self.dataCollectors[self.checkChangePos]
-        startChangeTime = 0
         locations = ["pre-TEM", "in-TEM", "post-TEM"]
         print(f"Detecting change {locations[self.checkChangePos]}")
         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],f"Detecting change {locations[self.checkChangePos]}")
-        indices = dataCollector.processedData[dataCollector.processedData[timePar].gt(self.lastCheckedTime)].index
-        foundLast = 0
-        
-        if len(indices)>1:
-            startRow = indices[0]
-            endRow = indices[-1]
-            for i in np.arange(startRow, endRow, 1):
-                if not np.isnan(dataCollector.processedData.loc[i]['absDiffSum']):
-                    if dataCollector.processedData.loc[i-dataCollector.parInfo['minChangeDuration']:i]['absDiffSum'].min() > dataCollector.parInfo['changeTreshold'] and dataCollector.state != "changing":
-                        print(dataCollector.parInfo['parameter'] + "change detected!")
-                        plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],dataCollector.parInfo['parameter'] + "change detected!")
-                        dataCollector.state = "changing"
-                        
-                        # Determine when the signal started changing
-                        x=i
-                        startChangeTime = dataCollector.processedData.loc[x][timePar]
-                    
-                        checkPar = dataCollector.parInfo['parameter']
-                        if 'filtered' in dataCollector.processedData.columns: checkPar = 'filtered'
-                        
-                        position = dataCollector.parInfo['position']
-                        if dataCollector.processedData.loc[x][checkPar]>self.noiseRanges[position][1]:
-                            while dataCollector.processedData.loc[x][checkPar]>self.noiseRanges[position][1]:
-                                x-=1
-                            # while dataCollector.processedData.loc[x][checkPar]<dataCollector.processedData.loc[x][checkPar]:
-                            #     x-=1
-                            startChangeTime = dataCollector.processedData.loc[x][timePar]
-                            
-                        else:
-                            while dataCollector.processedData.loc[x][checkPar]<self.noiseRanges[position][0]:
-                                x-=1
-                            # while dataCollector.processedData.loc[x][checkPar]>dataCollector.processedData.loc[x][checkPar]:
-                                #     x-=1
-                            startChangeTime = dataCollector.processedData.loc[x][timePar]                       
-                        
-                        
-                        timeDelayData.at[self.sequenceStep,self.checkChangePositions[self.checkChangePos]]=startChangeTime
-                        flagName = 'F'+str(self.sequence.iloc[self.sequenceStep]['P'])+str(self.sequence.iloc[self.sequenceStep]['PO'])+str(self.sequence.iloc[self.sequenceStep]['It'])
-                        timeDelayData.at[self.sequenceStep,'Cid']=flagName
-                        
-                        # When the postTem change has been detected, store the average Flow of the test
-                        if self.checkChangePos == 2:
-                            meanFlow = impulse.gas.data.getDataFrame(flagName)['reactorFlowMeasured'].mean()
-                            timeDelayData.at[self.sequenceStep,'Flow']=meanFlow
-                            timeDelayData.at[self.sequenceStep,'PtI']=timeDelayData.loc[self.sequenceStep,'inChangeTime']-timeDelayData.loc[self.sequenceStep,'preChangeTime']
-                            timeDelayData.at[self.sequenceStep,'ItP']=timeDelayData.loc[self.sequenceStep,'postChangeTime']-timeDelayData.loc[self.sequenceStep,'inChangeTime']
-                            self.fitCurves()
-                            foundLast = 1
-                        else:
-                            print(f"Found change {self.checkChangePos} at time {startChangeTime}")
-                            self.checkChangePos +=1
-                        break
-                    self.lastCheckedTime = dataCollector.processedData.loc[i][timePar]
-        return foundLast
-    
+        lastFound = 0
+        dataSinceInit = dataCollector.processedData[dataCollector.processedData[timePar]>self.initiateTime]
+        tresFilt = dataSinceInit[dataSinceInit['absDiffSum'].gt(dataCollector.parInfo['changeTreshold'])]
+        if tresFilt.shape[0]>0:
+            changeDetectTime=tresFilt.iloc[-1][timePar]
+            startChangeTime = self.findChangeStart(dataCollector, self.lastDetectionTime, changeDetectTime)
+            if startChangeTime!=0:
+                self.lastDetectionTime = startChangeTime
+
+                timeDelayData.at[self.sequenceStep,self.checkChangePositions[self.checkChangePos]]=startChangeTime
+                flagName = 'F'+str(self.sequence.iloc[self.sequenceStep]['P'])+str(self.sequence.iloc[self.sequenceStep]['PO'])+str(self.sequence.iloc[self.sequenceStep]['It'])
+                timeDelayData.at[self.sequenceStep,'Cid']=flagName
+
+
+                if self.checkChangePos == 2:
+                    meanFlow = impulse.gas.data.getDataFrame(flagName)['reactorFlowMeasured'].mean()
+                    timeDelayData.at[self.sequenceStep,'Flow']=meanFlow
+                    timeDelayData.at[self.sequenceStep,'PtI']=timeDelayData.loc[self.sequenceStep,'inChangeTime']-timeDelayData.loc[self.sequenceStep,'preChangeTime']
+                    timeDelayData.at[self.sequenceStep,'ItP']=timeDelayData.loc[self.sequenceStep,'postChangeTime']-timeDelayData.loc[self.sequenceStep,'inChangeTime']
+                    self.fitCurves()
+                    lastFound = 1
+                else:
+                    print(f"Found change {self.checkChangePos} at time {startChangeTime}")
+                    self.checkChangePos +=1
+                
+        return lastFound
+
     
     def saveData(self):
         now = datetime.now()
@@ -646,10 +602,9 @@ class controller():
         elif self.state == 2:
             self.state += self.waitUntilStable()  
         elif self.state == 3:
-            self.state += self.measureNoiseRange()  
-        elif self.state == 4:
+            self.detectChangeTimeoutCounter=0
             self.state += self.initiateChange()      
-        elif self.state == 5: 
+        elif self.state == 4: 
             self.state += self.detectChange()
             self.detectChangeTimeoutCounter +=1
             if self.detectChangeTimeoutVal - self.detectChangeTimeoutCounter < 10:
@@ -659,7 +614,7 @@ class controller():
                     print("Change not detected before timeout, restarting measurement")
                     plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Change not detected before timeout, restarting measurement")
                     self.state = 0
-        elif self.state == 6:
+        elif self.state == 5:
             if self.sequenceStep+1 > self.sequence.shape[0]-1:
                 print("Last test finished")
                 plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],"Last test finished.")
@@ -668,7 +623,7 @@ class controller():
                 if self.sequence.iloc[self.sequenceStep+1]['nPO']==1: #If the next test will be at new pressures, no need to wait for stable conditions
                     self.state+=1
                 else: self.state += self.waitUntilStable()     
-        elif self.state == 7: # Update sequence number
+        elif self.state == 6: # Update sequence number
             self.sequenceStep += 1
             self.state = 0
 
