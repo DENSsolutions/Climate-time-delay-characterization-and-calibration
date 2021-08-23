@@ -15,6 +15,7 @@ import ImpulsePySim as impulse # Simulator
 from datetime import datetime
 from scipy import optimize
 import pandas as pd
+pd.options.mode.chained_assignment = None
 import numpy as np
 import seaborn as sns
 
@@ -33,7 +34,7 @@ gasStates = [gasStateA, gasStateB]
 prePar = {
     "parameter": 'gas1FlowMeasured',
     "position" : 0,
-    'rollingAverageWindow' : 1,
+    'rollingAverageWindow' : 3,
     "changeTreshold" : 0.01,
     "stableTreshold" : 0.008,
     "minStableDuration" : 15,
@@ -63,6 +64,7 @@ postPar = {
 
 allParInfo = [prePar, inPar, postPar]
 
+rollingAverageCenter = False
 # Flow-Delay curve function
 def curveFunc(x, a, b, c):
     return a * np.exp(-b * x) + c
@@ -106,10 +108,10 @@ class dataProcessor():
             impulse.sleep(1)
             self.processedData = self.dataSource.getDataFrame()
             
-        self.processedData['Ra'] = self.processedData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=True).mean()
+        self.processedData['Ra'] = self.processedData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=rollingAverageCenter).mean()
         self.processedData['absRaDiff']=abs(self.processedData['Ra'].diff())
         self.processedData['diff']=self.processedData[self.parInfo['parameter']].diff()
-        self.processedData['diffSum']=self.processedData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=True).sum()
+        self.processedData['diffSum']=self.processedData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=rollingAverageCenter).sum()
         self.processedData['absDiffSum']= abs(self.processedData['diffSum'])
         
         self.lastSNFilter = 0
@@ -121,11 +123,11 @@ class dataProcessor():
         newRows = newSN-self.lastSN
 
         if newRows > 0:
-            newRowData = self.dataSource.getDataFrame(-(newRows+20)) # Grab 10 extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
-            newRowData['Ra'] = newRowData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=True).mean()
+            newRowData = self.dataSource.getDataFrame(-(newRows+20)) # Grab extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
+            newRowData['Ra'] = newRowData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=rollingAverageCenter).mean()
             newRowData['absRaDiff']=abs(newRowData['Ra'].diff())
             newRowData['diff']=newRowData[self.parInfo['parameter']].diff()
-            newRowData['diffSum']=newRowData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=True).sum()
+            newRowData['diffSum']=newRowData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=rollingAverageCenter).sum()
             newRowData['absDiffSum']= abs(newRowData['diffSum'])
             self.processedData = self.processedData.combine_first(newRowData)
             self.lastSN = newSN        
@@ -217,6 +219,7 @@ class createPlotWindow():
 
 
     def updateChangePlots(self):      
+        extraSpaceFront = 4
         extraSpaceRear = 25
         if timeDelayData.shape[0]>0:
             
@@ -242,41 +245,51 @@ class createPlotWindow():
                     colorIndex = int(colorIndex)
                     color = colorGroup[colorIndex]
                     if row.notna()['preChangeTime']:
+                        initTime = row['setpointChangeTime']
                         changeTime = row['preChangeTime']
-                        data = impulse.gas.data.getDataFrame(Cid)
+                        data = self.dataProcessors[0].processedData[self.dataProcessors[0].processedData[timePar]>=initTime-extraSpaceFront]
                         data = data[data[timePar]<=changeTime+extraSpaceRear]
                         if data.shape[0]>5:
                             xdata = data[timePar]
                             ydata = data[self.dataProcessors[0].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]
                             line,  = self.preGraph.plot(xoffset, ydata, label='Change ' + Cid, color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
+                            self.preGraph.plot(xoffset, data['absDiffSum'], color=color, linestyle='dotted')
+                            self.preGraph.axhline(self.dataProcessors[0].parInfo['stableTreshold'], color=color, label='Stable treshold', alpha=0.5, linestyle='dashed')
                             handles, labels = self.preGraph.get_legend_handles_labels()
                             self.preGraph.legend(handles=handles[-5:], loc='lower right')
         
                     if row.notna()['inChangeTime']:
+                        initTime = row['setpointChangeTime']
                         changeTime = row['inChangeTime']
-                        data = impulse.heat.data.getDataFrame(Cid)
+                        data = self.dataProcessors[1].processedData[self.dataProcessors[1].processedData[timePar]>=initTime-extraSpaceFront]
                         data = data[data[timePar]<=changeTime+extraSpaceRear]
                         if data.shape[0]>5:
                             xdata = data[timePar]
                             ydata = data[self.dataProcessors[1].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]                                      
                             line,  = self.inGraph.plot(xoffset, ydata, label='Change ' + Cid,color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
+                            self.inGraph.plot(xoffset, data['absDiffSum'], color=color, linestyle='dotted')
+                            self.inGraph.axhline(self.dataProcessors[1].parInfo['stableTreshold'], color=color, label='Stable treshold', alpha=0.5, linestyle='dashed')
+                            
                             self.inGraph.vlines(changeTime-row['preChangeTime'], ymin=self.inGraph.get_ylim()[0], ymax=self.inGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
                             handles, labels = self.inGraph.get_legend_handles_labels()
                             self.inGraph.legend(handles=handles[-5:], loc='lower left')
         
                     if row.notna()['postChangeTime']:
+                        initTime = row['setpointChangeTime']
                         changeTime = row['postChangeTime']
-                        data = impulse.gas.msdata.getDataFrame(Cid)
+                        data = self.dataProcessors[2].processedData[self.dataProcessors[2].processedData[timePar]>=initTime-extraSpaceFront]
                         data = data[data[timePar]<=changeTime+extraSpaceRear]
                         if data.shape[0]>5:
                             xdata = data[timePar]
                             ydata = data[self.dataProcessors[2].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]
                             line,  = self.postGraph.plot(xoffset, ydata, label='Change ' + Cid,color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
-                            self.postGraph.vlines(changeTime-row['preChangeTime'], ymin=self.postGraph.get_ylim()[0], ymax=self.postGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
+                            self.postGraph.plot(xoffset, data['absDiffSum'], color=color, linestyle='dotted')
+                            self.postGraph.axhline(self.dataProcessors[2].parInfo['stableTreshold'], color=color, label='Stable treshold', alpha=0.5, linestyle='dashed')
                             
+                            self.postGraph.vlines(changeTime-row['preChangeTime'], ymin=self.postGraph.get_ylim()[0], ymax=self.postGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
                             handles, labels = self.postGraph.get_legend_handles_labels()
                             self.postGraph.legend(handles=handles[-5:], loc='lower left')
             
@@ -340,22 +353,23 @@ class createPlotWindow():
             while self.parameterPlots[idx].lines:
                 self.parameterPlots[idx].lines.pop(0)
     
-            if 'filtered' in plotData.columns:
-                y = plotData['filtered']
+            style = 'solid'
+            if 'Ra' in plotData.columns:
+                y = plotData['Ra']
                 x = plotData[timePar]
-                line, = self.parameterPlots[idx].plot(x, y, color=colors[color], label='Filtered '+parameter, alpha=1, linewidth=2, linestyle='solid')
+                line, = self.parameterPlots[idx].plot(x, y, color=colors[color], label='RA '+parameter, alpha=1, linewidth=2, linestyle=style)
                 ymin = y.min()-0.1*(y.max()-y.min())
                 ymax = y.max()+0.1*(y.max()-y.min())
                 if ymin != ymax and len(y)>0 and not np.isnan(ymin) and not np.isnan(ymax): self.parameterPlots[idx].set_ylim(ymin, ymax)
                 y = plotData[parameter]
                 x = plotData[timePar]
-                self.parameterPlots[idx].plot(x, y, color=colors[color], label=parameter, alpha=0.2, linewidth=1, linestyle='solid')
                 plot1Legend = plot1Legend + [line]
-
-            elif parameter in plotData.columns:
+            
+            style = 'dotted'
+            if parameter in plotData.columns:
                 y = plotData[parameter]
                 x = plotData[timePar]
-                line, = self.parameterPlots[idx].plot(x, y, color=colors[color], label=parameter,  alpha=1, linewidth=2, linestyle='solid')
+                line, = self.parameterPlots[idx].plot(x, y, color=colors[color], label=parameter,  alpha=1, linewidth=2, linestyle=style)
                 ymin = y.min()-0.1*(y.max()-y.min())
                 ymax = y.max()+0.1*(y.max()-y.min())
                 if ymin != ymax: self.parameterPlots[idx].set_ylim(ymin, ymax)
@@ -374,19 +388,14 @@ class createPlotWindow():
                 self.parameterChangePlots[idx].axhline(par['stableTreshold'], color=colors[color], label='Stable treshold: '+ str(par['stableTreshold']), alpha=0.5, linestyle='dotted')
                 self.parameterChangePlots[idx].set_xlim(plotData[timePar].min(),plotData[timePar].max())
                 self.parameterChangePlots[idx].legend(loc='upper left')
-
-                if plotData['absDiffSum'].max()>par['changeTreshold']:
-                    ymax = plotData['absDiffSum'].max()
-                else:
-                    ymax = par['changeTreshold']
-                self.parameterChangePlots[idx].set_ylim(0, ymax)
+                self.parameterChangePlots[idx].set_yscale('log')
                 
-        self.parameterPlots[2].legend(plot1Legend, [allParInfo[0]['parameter'], allParInfo[1]['parameter'], allParInfo[2]['parameter']])
+        self.parameterPlots[2].legend(plot1Legend, [f"RA {allParInfo[0]['parameter']}", allParInfo[0]['parameter'], f"RA {allParInfo[1]['parameter']}", allParInfo[1]['parameter'], f"RA {allParInfo[2]['parameter']}", allParInfo[2]['parameter']])
     
     
     def updatePlots(self):    
         self.updateRtPlots()
-        self.updateChangePlots()        
+        self.updateChangePlots()
         self.fig.canvas.draw()
         plt.pause(updateDelay)
     
@@ -407,7 +416,6 @@ class controller():
         self.initiateTime=0
         self.lastDetectionTime=0
         
-        # New way of controlling the tests
         self.sequence = pd.DataFrame(columns = ['P', 'PO', 'It', 'State'])
         state = 0
         for p in pressureSetpoints:
@@ -515,10 +523,6 @@ class controller():
         timeDelayData.at[self.sequenceStep,'Pressure']=self.sequence.iloc[self.sequenceStep]['P']
         timeDelayData.at[self.sequenceStep,'PressureOffset']=self.sequence.iloc[self.sequenceStep]['PO']
         timeDelayData.at[self.sequenceStep,'It']=self.sequence.iloc[self.sequenceStep]['It']
-        flagName = 'F'+str(self.sequence.iloc[self.sequenceStep]['P'])+str(self.sequence.iloc[self.sequenceStep]['PO'])+str(self.sequence.iloc[self.sequenceStep]['It'])
-        impulse.gas.data.setFlag(flagName)
-        impulse.heat.data.setFlag(flagName)
-        impulse.gas.msdata.setFlag(flagName)
         initiateTime = impulse.gas.data.getNewData()[timePar]
         self.initiateTime = initiateTime
         self.lastDetectionTime = initiateTime
@@ -530,19 +534,23 @@ class controller():
             returnMessage = impulse.gas.setIOP(self.currentInletPressure,self.currentOutletPressure,gasStateB[0],gasStateB[1],gasStateB[2],gasStateB[3],gasStateB[4],gasStateB[5])
         if returnMessage != "ok":
             print(f"Gas state not accepted!\n Returnmessage: {returnMessage}")
-        timeDelayData.at[self.sequenceStep,'setpointChangeTime']=initiateTime      
+        timeDelayData.at[self.sequenceStep,'setpointChangeTime']=initiateTime
         self.checkChangePos = 0
         return 1
 
 
     def findChangeStart(self, dataCollector, initTime, changeTime):
         parInfo = dataCollector.parInfo
-        beforeBuffer = 4 #seconds
-        dataRange = dataCollector.processedData[(dataCollector.processedData[timePar].gt(initTime-beforeBuffer)) & (dataCollector.processedData[timePar].lt(changeTime))]
-        dataRange['changing']=dataRange['absDiffSum'].gt(parInfo['changeTreshold'])
+        beforeBuffer = 3 #seconds
+        afterBuffer = 3 #seconds
+        dataRange = dataCollector.processedData[(dataCollector.processedData[timePar].gt(initTime-beforeBuffer)) & (dataCollector.processedData[timePar].lt(changeTime+afterBuffer))]
+        dataRange = dataRange[dataRange['absDiffSum'].notna()]
+        dataRange['changing']=dataRange['absDiffSum'].gt(parInfo['stableTreshold'])
         dataRange['changeStartStop'] = (dataRange['changing'] == dataRange['changing'].shift(1))
         changeTimes = dataRange[dataRange['changeStartStop']==False]
-    
+        changeTimes = changeTimes.iloc[1: , :] #Drop the first changeTime, the first row always returns False
+        changeTimes = changeTimes[changeTimes['changing']==True]
+
         if changeTimes.shape[0]>0:
             changeTime = changeTimes.iloc[-1][timePar]
             return changeTime
@@ -562,16 +570,16 @@ class controller():
         if tresFilt.shape[0]>0:
             changeDetectTime=tresFilt.iloc[-1][timePar]
             startChangeTime = self.findChangeStart(dataCollector, self.lastDetectionTime, changeDetectTime)
+           
             if startChangeTime!=0:
                 self.lastDetectionTime = startChangeTime
-
                 timeDelayData.at[self.sequenceStep,self.checkChangePositions[self.checkChangePos]]=startChangeTime
-                flagName = 'F'+str(self.sequence.iloc[self.sequenceStep]['P'])+str(self.sequence.iloc[self.sequenceStep]['PO'])+str(self.sequence.iloc[self.sequenceStep]['It'])
+                flagName = 'P'+str(self.sequence.iloc[self.sequenceStep]['P'])+'PO'+str(self.sequence.iloc[self.sequenceStep]['PO'])+'#'+str(self.sequence.iloc[self.sequenceStep]['It'])
                 timeDelayData.at[self.sequenceStep,'Cid']=flagName
 
-
                 if self.checkChangePos == 2:
-                    meanFlow = impulse.gas.data.getDataFrame(flagName)['reactorFlowMeasured'].mean()
+                    dataForMeanFlow = self.dataCollectors[0].processedData[self.dataCollectors[0].processedData[timePar]>=self.initiateTime]
+                    meanFlow = dataForMeanFlow['reactorFlowMeasured'].mean()
                     timeDelayData.at[self.sequenceStep,'Flow']=meanFlow
                     timeDelayData.at[self.sequenceStep,'PtI']=timeDelayData.loc[self.sequenceStep,'inChangeTime']-timeDelayData.loc[self.sequenceStep,'preChangeTime']
                     timeDelayData.at[self.sequenceStep,'ItP']=timeDelayData.loc[self.sequenceStep,'postChangeTime']-timeDelayData.loc[self.sequenceStep,'inChangeTime']
