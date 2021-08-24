@@ -64,7 +64,7 @@ postPar = {
 
 allParInfo = [prePar, inPar, postPar]
 
-rollingAverageCenter = False
+rollingAverageCenter = True
 # Flow-Delay curve function
 def curveFunc(x, a, b, c):
     return a * np.exp(-b * x) + c
@@ -254,8 +254,6 @@ class createPlotWindow():
                             ydata = data[self.dataProcessors[0].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]
                             line,  = self.preGraph.plot(xoffset, ydata, label='Change ' + Cid, color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
-                            self.preGraph.plot(xoffset, data['absDiffSum'], color=color, linestyle='dotted')
-                            self.preGraph.axhline(self.dataProcessors[0].parInfo['stableTreshold'], color=color, label='Stable treshold', alpha=0.5, linestyle='dashed')
                             handles, labels = self.preGraph.get_legend_handles_labels()
                             self.preGraph.legend(handles=handles[-5:], loc='lower right')
         
@@ -269,9 +267,6 @@ class createPlotWindow():
                             ydata = data[self.dataProcessors[1].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]                                      
                             line,  = self.inGraph.plot(xoffset, ydata, label='Change ' + Cid,color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
-                            self.inGraph.plot(xoffset, data['absDiffSum'], color=color, linestyle='dotted')
-                            self.inGraph.axhline(self.dataProcessors[1].parInfo['stableTreshold'], color=color, label='Stable treshold', alpha=0.5, linestyle='dashed')
-                            
                             self.inGraph.vlines(changeTime-row['preChangeTime'], ymin=self.inGraph.get_ylim()[0], ymax=self.inGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
                             handles, labels = self.inGraph.get_legend_handles_labels()
                             self.inGraph.legend(handles=handles[-5:], loc='lower left')
@@ -286,9 +281,6 @@ class createPlotWindow():
                             ydata = data[self.dataProcessors[2].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]
                             line,  = self.postGraph.plot(xoffset, ydata, label='Change ' + Cid,color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
-                            self.postGraph.plot(xoffset, data['absDiffSum'], color=color, linestyle='dotted')
-                            self.postGraph.axhline(self.dataProcessors[2].parInfo['stableTreshold'], color=color, label='Stable treshold', alpha=0.5, linestyle='dashed')
-                            
                             self.postGraph.vlines(changeTime-row['preChangeTime'], ymin=self.postGraph.get_ylim()[0], ymax=self.postGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
                             handles, labels = self.postGraph.get_legend_handles_labels()
                             self.postGraph.legend(handles=handles[-5:], loc='lower left')
