@@ -9,8 +9,8 @@ Wed Aug 11 10:20:00 2021
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 8})
 
-#import impulsePy as impulse
-import ImpulsePySim as impulse # Simulator
+import impulsePy as impulse
+#import ImpulsePySim as impulse # Simulator
 
 from datetime import datetime
 from scipy import optimize
@@ -35,8 +35,8 @@ prePar = {
     "parameter": 'gas1FlowMeasured',
     "position" : 0,
     'rollingAverageWindow' : 3,
-    "changeTreshold" : 0.01,
-    "stableTreshold" : 0.008,
+    "changeThreshold" : 0.01,
+    "stableThreshold" : 0.008,
     "minStableDuration" : 15,
     "data" : impulse.gas.data
     
@@ -46,8 +46,8 @@ inPar = {
     "parameter" : 'powerMeasured',
     "position" : 1,
     'rollingAverageWindow' : 10,
-    "changeTreshold" : 0.002,
-    "stableTreshold" : 0.001,
+    "changeThreshold" : 0.002,
+    "stableThreshold" : 0.001,
     "minStableDuration" : 15,
     "data" : impulse.heat.data
     }
@@ -56,8 +56,8 @@ postPar = {
     "parameter" : 'Methane',
     "position" : 2,
     'rollingAverageWindow' : 20,
-    "changeTreshold" : 0.2e-8,
-    "stableTreshold" : 0.1e-8,
+    "changeThreshold" : 0.2e-8,
+    "stableThreshold" : 0.1e-8,
     "minStableDuration" : 15,
     "data" : impulse.gas.msdata   
     }
@@ -376,8 +376,8 @@ class createPlotWindow():
                 y = plotData['absDiffSum']
                 x = plotData[timePar]
                 self.parameterChangePlots[idx].plot(x, y, color=colors[color], label=parameter, alpha=1, linewidth=2, linestyle='-')
-                self.parameterChangePlots[idx].axhline(par['changeTreshold'], color=colors[color], label='Change treshold: '+ str(par['changeTreshold']), alpha=0.5, linestyle='dashed')
-                self.parameterChangePlots[idx].axhline(par['stableTreshold'], color=colors[color], label='Stable treshold: '+ str(par['stableTreshold']), alpha=0.5, linestyle='dotted')
+                self.parameterChangePlots[idx].axhline(par['changeThreshold'], color=colors[color], label='Change threshold: '+ str(par['changeThreshold']), alpha=0.5, linestyle='dashed')
+                self.parameterChangePlots[idx].axhline(par['stableThreshold'], color=colors[color], label='Stable threshold: '+ str(par['stableThreshold']), alpha=0.5, linestyle='dotted')
                 self.parameterChangePlots[idx].set_xlim(plotData[timePar].min(),plotData[timePar].max())
                 self.parameterChangePlots[idx].legend(loc='upper left')
                 self.parameterChangePlots[idx].set_yscale('log')
@@ -486,9 +486,9 @@ class controller():
             print("Not enough changevector data yet...")
         
         elif 'absDiffSum' in self.dataCollectors[0].processedData.columns and 'absDiffSum' in self.dataCollectors[1].processedData.columns and 'absDiffSum' in self.dataCollectors[2].processedData.columns:
-            if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[0].parInfo['stableTreshold']:
-                if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[1].parInfo['stableTreshold']:
-                    if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absDiffSum'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[2].parInfo['stableTreshold']:
+            if self.dataCollectors[0].processedData.tail(self.dataCollectors[0].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[0].parInfo['stableThreshold']:
+                if self.dataCollectors[1].processedData.tail(self.dataCollectors[1].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[1].parInfo['stableThreshold']:
+                    if self.dataCollectors[2].processedData[self.dataCollectors[2].processedData['absDiffSum'].notna()].tail(self.dataCollectors[2].parInfo['minStableDuration'])['absDiffSum'].max() < self.dataCollectors[2].parInfo['stableThreshold']:
                         self.dataCollectors[0].state = "stable"
                         self.dataCollectors[1].state = "stable"
                         self.dataCollectors[2].state = "stable"
@@ -537,7 +537,7 @@ class controller():
         afterBuffer = 3 #seconds
         dataRange = dataCollector.processedData[(dataCollector.processedData[timePar].gt(initTime-beforeBuffer)) & (dataCollector.processedData[timePar].lt(changeTime+afterBuffer))]
         dataRange = dataRange[dataRange['absDiffSum'].notna()]
-        dataRange['changing']=dataRange['absDiffSum'].gt(parInfo['stableTreshold'])
+        dataRange['changing']=dataRange['absDiffSum'].gt(parInfo['stableThreshold'])
         dataRange['changeStartStop'] = (dataRange['changing'] == dataRange['changing'].shift(1))
         changeTimes = dataRange[dataRange['changeStartStop']==False]
         changeTimes = changeTimes.iloc[1: , :] #Drop the first changeTime, the first row always returns False
@@ -558,7 +558,7 @@ class controller():
         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],f"Detecting change {locations[self.checkChangePos]}")
         lastFound = 0
         dataSinceInit = dataCollector.processedData[dataCollector.processedData[timePar]>self.initiateTime]
-        tresFilt = dataSinceInit[dataSinceInit['absDiffSum'].gt(dataCollector.parInfo['changeTreshold'])]
+        tresFilt = dataSinceInit[dataSinceInit['absDiffSum'].gt(dataCollector.parInfo['changeThreshold'])]
         if tresFilt.shape[0]>0:
             changeDetectTime=tresFilt.iloc[-1][timePar]
             startChangeTime = self.findChangeStart(dataCollector, self.lastDetectionTime, changeDetectTime)
