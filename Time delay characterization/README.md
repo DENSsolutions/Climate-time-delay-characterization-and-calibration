@@ -1,5 +1,7 @@
 # Climate time delay characterization script
 The time delay characterization script automatically measures the time delay between the pre-TEM, in-TEM and post-TEM measurement locations at different flow-speeds.
+This script is writted based on the results of the collaboration between DENSsolutions and DICP.
+
 
 ## Dependencies
 In order to run the time delay characterization script, you will need to have the impulsePy module installed.
