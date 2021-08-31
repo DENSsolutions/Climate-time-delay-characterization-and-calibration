@@ -34,8 +34,8 @@ if timeDelayCalibrationPath!="":
     
 else:
     print("Standard curve parameters used.")
-    beforeCurveParameters = [-0.00095, 0.10217, -0.14985, 0.27158]
-    afterCurveParameters = [-0.00095, 0.10217, -0.14985, 0.27158]
+    beforeCurveParameters = [0.00537, 0.19851, -0.3538, 0.36659]
+    afterCurveParameters = [0.00767, 0.01736, 0.66376, -0.44175]
 
 def calculateBeforeOffset(flowrate): # Calculates the time delay between before-TEM and inside-TEM
     a,b,c,d = beforeCurveParameters
