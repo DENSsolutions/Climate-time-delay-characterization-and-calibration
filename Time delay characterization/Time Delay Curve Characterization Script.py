@@ -9,8 +9,8 @@ Wed Aug 31 10:26:00 2021
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 12, 'axes.linewidth':2, 'xtick.major.width':2, 'ytick.major.width':2})
 
-import impulsePy as impulse
-#import ImpulsePySim as impulse # Simulator
+#import impulsePy as impulse
+import ImpulsePySim as impulse # Simulator
 
 from datetime import datetime
 from scipy import optimize
@@ -64,6 +64,7 @@ postPar = {
 allParInfo = [prePar, inPar, postPar]
 
 rollingAverageCenter = True
+
 # Flow-Delay curve function
 def curveFunc(x, a, b, c, d):
     return 1/(a+b*x+c*x**2+d*x**3)
@@ -372,8 +373,8 @@ class createPlotWindow():
                 y = plotData['absDiffSum']
                 x = plotData[timePar]
                 self.parameterChangePlots[idx].plot(x, y, color=colors[color], label=parameter, alpha=1, linewidth=2, linestyle='-')
-                self.parameterChangePlots[idx].axhline(par['changeThreshold'], color=colors[color], label='Change threshold: '+ str(par['changeThreshold']), alpha=0.5, linestyle='dashed')
-                self.parameterChangePlots[idx].axhline(par['stableThreshold'], color=colors[color], label='Stable threshold: '+ str(par['stableThreshold']), alpha=0.5, linestyle='dotted')
+                self.parameterChangePlots[idx].axhline(par['changeThreshold'], color='black', label='Change threshold: '+ str(par['changeThreshold']), alpha=0.5, linestyle='dashed')
+                self.parameterChangePlots[idx].axhline(par['stableThreshold'], color='black', label='Stable threshold: '+ str(par['stableThreshold']), alpha=0.5, linestyle='dotted')
                 self.parameterChangePlots[idx].set_xlim(plotData[timePar].min(),plotData[timePar].max())
                 self.parameterChangePlots[idx].legend(loc='upper left')
                 self.parameterChangePlots[idx].set_yscale('log')

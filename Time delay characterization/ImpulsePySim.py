@@ -14,18 +14,18 @@ import random
 initTime = dt.datetime.now() - dt.timedelta(seconds=200)
 
 def ptiDelayFunction(x):
-    a=-0.00095
-    b=0.10217
-    c=-0.14985
-    d=0.27158
-    return 1/(a+b*x+c*x**2+d*x**3)/2
+    a=-0.00537
+    b=0.19851
+    c=-0.3538
+    d=0.36659
+    return 1/(a+b*x+c*x**2+d*x**3)
 
 def itpDelayFunction(x):
-    a=-0.00095
-    b=0.10217
-    c=-0.14985
-    d=0.27158
-    return (1/(a+b*x+c*x**2+d*x**3))
+    a=-0.00767
+    b=0.01736
+    c=0.66376
+    d=-0.44175
+    return 1/(a+b*x+c*x**2+d*x**3)+ptiDelayFunction(x)
 
 def waitForControl():
     sleep(1)
@@ -54,7 +54,6 @@ class gasDataGenerator():
     
     def subscribe(self):
         print("Subscribed to fake gasData")
-    
 
     def calculateNext(self, init, newTimestamp, parametername, setpointname, delay, speed):
         if self.dataSet.shape[0]<1:
@@ -68,14 +67,12 @@ class gasDataGenerator():
             else: targetVal = init
             lastVal = self.dataSet.iloc[-1][parametername]
             newVal = lastVal + ((targetVal - lastVal) * speed)
+            newVal = newVal + (((random.random()-0.5)/500))
             return newVal
 
     def calculateFlow(self, inlet, outlet):
         offset = inlet-outlet
-        offset -= 300
-        offset = offset/400
-        flow = 0.15+(offset*0.25)
-        if flow < 0.001: flow = 0.001
+        flow = offset*0.00055
         return flow
     
     def generateNewData(self):
@@ -84,8 +81,8 @@ class gasDataGenerator():
         else: lastTimeStamp = self.dataSet.iloc[-1]['experimentDuration']
         newTimeStamp = lastTimeStamp + self.interval
         while self.initTime + dt.timedelta(seconds = newTimeStamp) < dt.datetime.now():
-            nextInlet = self.calculateNext(0, newTimeStamp, 'inletPressureMeasured', 'inletPressureSetpoint', 1 ,0.2)
-            nextOutlet = self.calculateNext(0, newTimeStamp ,'outletPressureMeasured', 'outletPressureSetpoint', 1 ,0.2)
+            nextInlet = self.calculateNext(0, newTimeStamp, 'inletPressureMeasured', 'inletPressureSetpoint', 1 ,0.5)
+            nextOutlet = self.calculateNext(0, newTimeStamp ,'outletPressureMeasured', 'outletPressureSetpoint', 1 ,0.5)
             nextFlow = self.calculateFlow(nextInlet, nextOutlet)
             nextGas1Flow = self.calculateNext(0, newTimeStamp, 'gas1FlowMeasured', 'gas1FlowSetpoint', 1, 0.3)
             dataMsg = {
@@ -157,8 +154,7 @@ class heatDataGenerator():
         self.lastData = None
     
     def subscribe(self):
-        print("Subscribed to fake heatData")
-    
+        print("Subscribed to fake heatData")  
 
     def temperatureMeasured(self):
         if self.dataSet.shape[0]<1:
@@ -182,7 +178,7 @@ class heatDataGenerator():
             else: target = lastVal
             targetPoint = (temperatureMeasured/1000) - (target / 8)
             newVal = lastVal + ((targetPoint - lastVal) * 0.3)
-            newVal = newVal + (((random.random()-0.5)/500000))
+            newVal = newVal + (((random.random()-0.5)/10000))
             return newVal   
     
     def generateNewData(self):
