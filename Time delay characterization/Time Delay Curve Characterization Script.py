@@ -1,16 +1,16 @@
 """
 Time Delay Curve Characterization Script
-Version 1.5
-Wed Aug 11 10:20:00 2021
+Version 1.6
+Wed Aug 31 10:26:00 2021
 
 @author: Merijn Pen
 """
 
 import matplotlib.pyplot as plt
-plt.rcParams.update({'font.size': 8})
+plt.rcParams.update({'font.size': 12, 'axes.linewidth':2, 'xtick.major.width':2, 'ytick.major.width':2})
 
-#import impulsePy as impulse
-import ImpulsePySim as impulse # Simulator
+import impulsePy as impulse
+#import ImpulsePySim as impulse # Simulator
 
 from datetime import datetime
 from scipy import optimize
@@ -25,7 +25,7 @@ updateDelay = 0.01
 temperature = 300
 pressureSetpoints = [700]
 pressureOffsetSetpoints = [700, 600, 500, 400, 300]
-iterations = 1 # Number of measurements per pressure offset
+iterations = 3 # Number of measurements per pressure offset
 
 gasStateA = [0.25, 'Reactor', 0, 'Exhaust', 5, 'Reactor']
 gasStateB = [1, 'Reactor', 0, 'Exhaust', 4.25, 'Reactor']
@@ -39,7 +39,6 @@ prePar = {
     "stableThreshold" : 0.008,
     "minStableDuration" : 15,
     "data" : impulse.gas.data
-    
     }
 
 inPar = {
@@ -68,9 +67,6 @@ rollingAverageCenter = True
 # Flow-Delay curve function
 def curveFunc(x, a, b, c, d):
     return 1/(a+b*x+c*x**2+d*x**3)
-
-initialPtICurvePars = [0,0.17,-0.2]
-initialItPCurvePars = [0,0.07,0.01]
 
 timePar = 'experimentDuration'
 visibleHistory = 300 #Seconds visible in the real-time graphs
@@ -316,14 +312,14 @@ class createPlotWindow():
                 curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),10)
                 ptiCurveParams = row['PtI']
                 curve1Y = curveFunc(curveX, *ptiCurveParams)
-                self.curv1.plot(curveX, curve1Y, 'r-', color=color, label='P:' + str(pressure) + ' fit: a=%5.3f, b=%5.3f, c=%5.3f, d=%5.3f' % tuple(ptiCurveParams))
+                self.curv1.plot(curveX, curve1Y, 'r-', color=color, label='P:' + str(pressure) + ' fit: 1/(%5.3f + %5.3f*x + %5.3f*x^2 + %5.3f*x^3)' % tuple(ptiCurveParams))
                 self.curv1.set_ylim(curve1Y.min(), curve1Y.max())
                 self.curv1.legend(loc='upper right')
             if row.notna()['ItP']:
                 curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),10)
                 itpCurveParams = row['ItP']
                 curve2Y = curveFunc(curveX, *itpCurveParams)
-                self.curv2.plot(curveX, curve2Y, 'r-', color=color, label='P:' + str(pressure) + ' fit: a=%5.3f, b=%5.3f, c=%5.3f, d=%5.3f' % tuple(itpCurveParams))
+                self.curv2.plot(curveX, curve2Y, 'r-', color=color, label='P:' + str(pressure) + ' fit: 1/(%5.3f + %5.3f*x + %5.3f*x^2 + %5.3f*x^3)' % tuple(itpCurveParams))
                 self.curv2.set_ylim(curve2Y.min(), curve2Y.max())
                 self.curv2.legend(loc='upper right')
 
@@ -440,12 +436,12 @@ class controller():
                 ptiData = pressureDelayDataOrdered["PtI"].tolist()
                 itpData = pressureDelayDataOrdered["ItP"].tolist()
                 try:
-                    self.ptiCurveParams, ptiCurveCovar = optimize.curve_fit(curveFunc, flowData, ptiData, p0=initialPtICurvePars, maxfev=1000)
+                    self.ptiCurveParams, ptiCurveCovar = optimize.curve_fit(curveFunc, flowData, ptiData, maxfev=1000)
                     timeDelayCurves.loc[pressure,'PtI']=self.ptiCurveParams
                 except:
                     print("Could not fit curve to PtI data (yet)")
                 try:
-                    self.itpCurveParams, itpCurveCovar = optimize.curve_fit(curveFunc, flowData, itpData, p0=initialItPCurvePars, maxfev=1000)
+                    self.itpCurveParams, itpCurveCovar = optimize.curve_fit(curveFunc, flowData, itpData, maxfev=1000)
                     timeDelayCurves.loc[pressure,'ItP']=self.itpCurveParams
                 except:
                     print("Could not fit curve to ItP data (yet)")

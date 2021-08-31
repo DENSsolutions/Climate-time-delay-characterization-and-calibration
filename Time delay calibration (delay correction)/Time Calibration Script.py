@@ -1,3 +1,4 @@
+from datetime import date, datetime, timedelta
 import pandas as pd
 import numpy as np
 import math
@@ -33,20 +34,16 @@ if timeDelayCalibrationPath!="":
     
 else:
     print("Standard curve parameters used.")
-    beforeCurveParameters = [-0.00365, -0.14249, 0.09555]
-    afterCurveParameters = [0.00189, 0.04113, 0.09746]
+    beforeCurveParameters = [-0.00095, 0.10217, -0.14985, 0.27158]
+    afterCurveParameters = [-0.00095, 0.10217, -0.14985, 0.27158]
 
 def calculateBeforeOffset(flowrate): # Calculates the time delay between before-TEM and inside-TEM
-    a = beforeCurveParameters[0]
-    b = beforeCurveParameters[1]
-    c = beforeCurveParameters[2]
-    return a * np.exp(-b * flowrate) + c
+    a,b,c,d = beforeCurveParameters
+    return 1/(a+b*flowrate+c*flowrate**2+d*flowrate**3)
 
 def calculateAfterOffset(flowrate): # Calculates the time delay between inside-TEM and after-TEM
-    a = afterCurveParameters[0]
-    b = afterCurveParameters[1]
-    c = afterCurveParameters[2]
-    return a * np.exp(-b * flowrate) + c
+    a,b,c,d = afterCurveParameters
+    return 1/(a+b*flowrate+c*flowrate**2+d*flowrate**3)
 
 #Load the Impulse logfile into a pandas dataframe
 allData = pd.read_csv(impulseLogfilePath, infer_datetime_format=True)

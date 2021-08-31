@@ -13,11 +13,25 @@ import random
 
 initTime = dt.datetime.now() - dt.timedelta(seconds=200)
 
+def ptiDelayFunction(x):
+    a=-0.00095
+    b=0.10217
+    c=-0.14985
+    d=0.27158
+    return 1/(a+b*x+c*x**2+d*x**3)/2
+
+def itpDelayFunction(x):
+    a=-0.00095
+    b=0.10217
+    c=-0.14985
+    d=0.27158
+    return (1/(a+b*x+c*x**2+d*x**3))
+
 def waitForControl():
     sleep(1)
 
 def disconnect():
-    print("Doei.")
+    print("Bye.")
 
 class gasDataGenerator():
     def __init__(self, interval, initTime):
@@ -57,8 +71,11 @@ class gasDataGenerator():
             return newVal
 
     def calculateFlow(self, inlet, outlet):
-        flow = (inlet-outlet)/2000
-        #flow = flow + (((random.random()-0.5)/10))
+        offset = inlet-outlet
+        offset -= 300
+        offset = offset/400
+        flow = 0.15+(offset*0.25)
+        if flow < 0.001: flow = 0.001
         return flow
     
     def generateNewData(self):
@@ -158,7 +175,7 @@ class heatDataGenerator():
         else:
             lastVal = self.dataSet.iloc[-1]['powerMeasured']
             flowSpeed = self.gasData.dataSet.iloc[-1]['reactorFlowMeasured']
-            timeDelay = (1/(flowSpeed+0.0001))*5
+            timeDelay = ptiDelayFunction(flowSpeed)#(1/(flowSpeed+0.0001))*5
             gasData = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)]
             if gasData.shape[0]>0:
                 target = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)].iloc[-1]['gas1FlowMeasured']
@@ -243,7 +260,7 @@ class msDataGenerator():
         else:
             lastVal = self.dataSet.iloc[-1]['Methane']
             flowSpeed = self.gasData.dataSet.iloc[-1]['reactorFlowMeasured']
-            timeDelay = (1/(flowSpeed+0.0001))*10
+            timeDelay = itpDelayFunction(flowSpeed)
             gasData = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)]
             if gasData.shape[0]>0:
                 target = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)].iloc[-1]['gas1FlowMeasured']
