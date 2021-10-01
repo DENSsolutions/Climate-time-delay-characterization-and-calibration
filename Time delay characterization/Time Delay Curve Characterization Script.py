@@ -1,7 +1,7 @@
 """
 Time Delay Curve Characterization Script
-Version 1.6
-Wed Aug 31 10:26:00 2021
+Version 1.7
+Fri Oct 1 10:11:00 2021
 
 @author: Merijn Pen
 """
@@ -19,12 +19,16 @@ pd.options.mode.chained_assignment = None
 import numpy as np
 import seaborn as sns
 
+from sympy.solvers import solve
+from sympy import Symbol, sqrt
+
+
 updateDelay = 0.01
 
 # Parameters
 temperature = 300
-pressureSetpoints = [700]
-pressureOffsetSetpoints = [700, 600, 500, 400, 300]
+pressureSetpoints = [300, 400]
+pressureOffsetSetpoints = [700, 650, 600]
 iterations = 3 # Number of measurements per pressure offset
 
 gasStateA = [0.25, 'Reactor', 0, 'Exhaust', 5, 'Reactor']
@@ -68,6 +72,16 @@ rollingAverageCenter = True
 # Flow-Delay curve function
 def curveFunc(x, a, b, c, d):
     return 1/(a+b*x+c*x**2+d*x**3)
+
+# Calculate Inlet and Outlet setpoints
+def calcInletOutletPressures(Pnr, Poff):
+    x = Symbol('x')
+    Pin = solve(sqrt(0.5*x**2+0.5*(x-Poff)**2)-Pnr, x)
+    Pout = solve(sqrt(0.5*(x+Poff)**2+0.5*(x)**2)-Pnr, x)
+    if len(Pin)>1: Pin=Pin[1]
+    if len(Pout)>1: Pout=Pout[1]
+    return([Pin,Pout])
+
 
 timePar = 'experimentDuration'
 visibleHistory = 300 #Seconds visible in the real-time graphs
@@ -453,8 +467,9 @@ class controller():
         newState = self.sequence.iloc[self.sequenceStep]
         pressure = newState['P']
         pressureOffset = newState['PO']
-        self.currentInletPressure = pressure+(0.5*pressureOffset)
-        self.currentOutletPressure = pressure-(0.5*pressureOffset)
+        self.currentInletPressure, self.currentOutletPressure = calcInletOutletPressures(pressure,pressureOffset)
+        # self.currentInletPressure = pressure+(0.5*pressureOffset)
+        # self.currentOutletPressure = pressure-(0.5*pressureOffset)
         print(f"Setting pressures {self.currentInletPressure} - {self.currentOutletPressure}")
         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],f"Setting pressures {self.currentInletPressure} - {self.currentOutletPressure}")
         gasMixState = gasStates[abs(newState['State']-1)] # This is ugly, but we need to set the opposite gas state first
