@@ -46,3 +46,8 @@ This file can be loaded into the Time Delay Calibration (correction) script to c
 ## Simulation
 In line 12, the impulsePy module is imported. If you wish to run this script in a simulation mode, put a hashtag before this line and remove the hashtag before the next line (line 13) which will import the simulator that is included in this repository.
 
+
+## Known issues
+- Only 3 color schemes are set for the different NR pressure measurements, if measurements are done for more than 3 pressures, the list of color schemes should be made longer
+- The change graphs (middle) get squished more and more due to the vertical line in every graph getting longer
+- Assertion error randomly occurs, until this one is fixed, restart the kernel and run the script again
