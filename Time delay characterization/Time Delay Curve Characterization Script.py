@@ -27,9 +27,9 @@ updateDelay = 0.01
 
 # Parameters
 temperature = 300
-pressureSetpoints = [300, 400]
-pressureOffsetSetpoints = [700, 650, 600]
-iterations = 3 # Number of measurements per pressure offset
+pressureSetpoints = [400, 600, 800]
+pressureOffsetSetpoints = [700, 600, 500, 400]
+iterations = 1 # Number of measurements per pressure offset
 
 gasStateA = [0.25, 'Reactor', 0, 'Exhaust', 5, 'Reactor']
 gasStateB = [1, 'Reactor', 0, 'Exhaust', 4.25, 'Reactor']
@@ -80,6 +80,8 @@ def calcInletOutletPressures(Pnr, Poff):
     Pout = solve(sqrt(0.5*(x+Poff)**2+0.5*(x)**2)-Pnr, x)
     if len(Pin)>1: Pin=Pin[1]
     if len(Pout)>1: Pout=Pout[1]
+    Pin = int(round(Pin,0))
+    Pout = int(round(Pout,0))
     return([Pin,Pout])
 
 
@@ -89,7 +91,7 @@ visibleHistory = 300 #Seconds visible in the real-time graphs
 # Define colors for the graphs
 colors = sns.color_palette("hls", 8) # Colors for the real-time graphs
 colorGroups = {}
-colorMaps = ['flare' , 'crest']
+colorMaps = ['flare', 'crest', 'Blues', 'dark:salmon_r']
 for idx, pressure in enumerate(pressureSetpoints):
     colorMap = colorMaps[idx]
     colorPallette = sns.color_palette(colorMap, len(pressureOffsetSetpoints)*iterations)

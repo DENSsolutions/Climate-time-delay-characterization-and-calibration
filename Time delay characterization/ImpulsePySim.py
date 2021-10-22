@@ -10,6 +10,7 @@ import datetime as dt
 from time import sleep
 import pandas as pd
 import random
+import math
 
 initTime = dt.datetime.now() - dt.timedelta(seconds=200)
 
@@ -26,6 +27,9 @@ def itpDelayFunction(x):
     c=0.66376
     d=-0.44175
     return 1/(a+b*x+c*x**2+d*x**3)+ptiDelayFunction(x)
+
+def pressureDependency(pressure):
+    return pressure/400
 
 def waitForControl():
     sleep(1)
@@ -171,11 +175,17 @@ class heatDataGenerator():
         else:
             lastVal = self.dataSet.iloc[-1]['powerMeasured']
             flowSpeed = self.gasData.dataSet.iloc[-1]['reactorFlowMeasured']
-            timeDelay = ptiDelayFunction(flowSpeed)#(1/(flowSpeed+0.0001))*5
+
+            Pin = self.gasData.dataSet.iloc[-1]['inletPressureMeasured']
+            Pout = self.gasData.dataSet.iloc[-1]['outletPressureMeasured']
+            pressure =  math.sqrt((0.5*(Pin**2))+(0.5*(Pout**2)))
+            timeDelay = ptiDelayFunction(flowSpeed)+pressureDependency(pressure)
+            print(f"{timeDelay} = {ptiDelayFunction(flowSpeed)} + {pressureDependency(pressure)}")
+            
             gasData = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)]
             if gasData.shape[0]>0:
                 target = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)].iloc[-1]['gas1FlowMeasured']
-            else: target = lastVal
+            else:  target = lastVal
             targetPoint = (temperatureMeasured/1000) - (target / 8)
             newVal = lastVal + ((targetPoint - lastVal) * 0.3)
             newVal = newVal + (((random.random()-0.5)/10000))
@@ -256,7 +266,11 @@ class msDataGenerator():
         else:
             lastVal = self.dataSet.iloc[-1]['Methane']
             flowSpeed = self.gasData.dataSet.iloc[-1]['reactorFlowMeasured']
-            timeDelay = itpDelayFunction(flowSpeed)
+            Pin = self.gasData.dataSet.iloc[-1]['inletPressureMeasured']
+            Pout = self.gasData.dataSet.iloc[-1]['outletPressureMeasured']
+            pressure =  math.sqrt((0.5*(Pin**2))+(0.5*(Pout**2)))
+            print(f"3: {pressure}")
+            timeDelay = itpDelayFunction(flowSpeed)+(pressureDependency(pressure)*2)
             gasData = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)]
             if gasData.shape[0]>0:
                 target = self.gasData.dataSet[self.gasData.dataSet['experimentDuration']<(newTimeStamp-timeDelay)].iloc[-1]['gas1FlowMeasured']
