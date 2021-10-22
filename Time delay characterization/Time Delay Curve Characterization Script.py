@@ -9,8 +9,8 @@ Fri Oct 1 10:11:00 2021
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 12, 'axes.linewidth':2, 'xtick.major.width':2, 'ytick.major.width':2})
 
-#import impulsePy as impulse
-import ImpulsePySim as impulse # Simulator
+import impulsePy as impulse
+#import ImpulsePySim as impulse # Simulator
 
 from datetime import datetime
 from scipy import optimize
