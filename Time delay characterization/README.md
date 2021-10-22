@@ -2,14 +2,14 @@
 This repository contains the following scripts:
 - Time Delay Curve Characterization script
 
-The time delay characterization script automatically measures the time delay between the pre-TEM, in-TEM and post-TEM measurement locations at different flow-speeds.
-This script is writted based on the results of the collaboration between DENSsolutions and DICP.
+>The time delay characterization script automatically measures the time delay between the pre-TEM, in-TEM and post-TEM measurement locations at different flow-speeds.
+>This script is writted based on the results of the collaboration between DENSsolutions and DICP.
 
 - ImpulsePySim
-This is a script that simulates measurements with time delays for the Time delay curve characterization script. To run the characterization script with this simulator, make sure to disable the importing of the impulsePy module and enable the line below it.
+>This is a script that simulates measurements with time delays for the Time delay curve characterization script. To run the characterization script with this simulator, make sure to disable the importing of the impulsePy module and enable the line below it.
 
 - Fit 3D function
-This script can load the timedelaydata.csv file that is saved by the time delay curve characterization script and will fit a 3D function to the data.
+>This script can load the timedelaydata.csv file that is saved by the time delay curve characterization script and will fit a 3D function to the data. Eventually the Time delay Calibration script will be updated to use this 3D function for the correction of the data.
 
 
 ## Dependencies
