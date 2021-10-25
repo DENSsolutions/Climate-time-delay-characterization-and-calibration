@@ -1,9 +1,9 @@
 """
 Time Delay Curve Characterization Script
-Version 1.7
-Fri Oct 1 10:11:00 2021
+Version 1.9 - added 3d curve fitting
+Mon Oct 25 10:11:00 2021
 
-@author: Merijn Pen
+@author: Merijn
 """
 
 import matplotlib.pyplot as plt
@@ -27,7 +27,7 @@ updateDelay = 0.01
 
 # Parameters
 temperature = 300
-pressureSetpoints = [400, 600, 800]
+pressureSetpoints = [600, 700, 800]
 pressureOffsetSetpoints = [700, 600, 500, 400]
 iterations = 1 # Number of measurements per pressure offset
 
@@ -37,32 +37,32 @@ gasStates = [gasStateA, gasStateB]
 
 prePar = {
     "parameter": 'gas1FlowMeasured',
-    "position" : 0,
+    "position" : 0, #Do not change
     'rollingAverageWindow' : 3,
     "changeThreshold" : 0.01,
     "stableThreshold" : 0.008,
     "minStableDuration" : 15,
-    "data" : impulse.gas.data
+    "data" : impulse.gas.data #Do not change
     }
 
 inPar = {
     "parameter" : 'powerMeasured',
-    "position" : 1,
+    "position" : 1, #Do not change
     'rollingAverageWindow' : 10,
     "changeThreshold" : 0.002,
     "stableThreshold" : 0.001,
     "minStableDuration" : 15,
-    "data" : impulse.heat.data
+    "data" : impulse.heat.data #Do not change
     }
 
 postPar = {
     "parameter" : 'Methane',
-    "position" : 2,
+    "position" : 2, #Do not change
     'rollingAverageWindow' : 20,
     "changeThreshold" : 0.2e-8,
     "stableThreshold" : 0.1e-8,
     "minStableDuration" : 15,
-    "data" : impulse.gas.msdata   
+    "data" : impulse.gas.msdata #Do not change 
     }
 
 allParInfo = [prePar, inPar, postPar]
@@ -91,15 +91,19 @@ visibleHistory = 300 #Seconds visible in the real-time graphs
 # Define colors for the graphs
 colors = sns.color_palette("hls", 8) # Colors for the real-time graphs
 colorGroups = {}
-colorMaps = ['flare', 'crest', 'Blues', 'dark:salmon_r']
+colorStep = 3/len(pressureSetpoints)
+rotVal = -0.1
 for idx, pressure in enumerate(pressureSetpoints):
-    colorMap = colorMaps[idx]
-    colorPallette = sns.color_palette(colorMap, len(pressureOffsetSetpoints)*iterations)
+    colorPallette = sns.cubehelix_palette(start=colorStep*idx, rot=rotVal, light=0.3, dark=0.8, as_cmap=False, n_colors=len(pressureOffsetSetpoints)*iterations)
     colorGroups[pressure]=colorPallette
 
 # Create time delay data and curve result DataFrames
 timeDelayData = pd.DataFrame(columns = ['Cid', 'Pressure', 'PressureOffset', 'Flow', 'setpointChangeTime', 'preChangeTime', 'inChangeTime', 'postChangeTime', 'PtI', 'ItP'])
 timeDelayCurves = pd.DataFrame(index = pressureSetpoints , columns = ['PtI', 'ItP'])
+timeDelayCurves['Type']='2D'
+timeDelay3DCurves = pd.DataFrame(columns = ['PtI', 'ItP'])
+timeDelay3DCurves['Type']='3D'
+
 
 # Subscribe
 impulse.heat.data.subscribe()
@@ -280,7 +284,9 @@ class createPlotWindow():
                             ydata = data[self.dataProcessors[1].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]                                      
                             line,  = self.inGraph.plot(xoffset, ydata, label='Change ' + Cid,color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
-                            self.inGraph.vlines(changeTime-row['preChangeTime'], ymin=self.inGraph.get_ylim()[0], ymax=self.inGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
+                            changeY = data[data[timePar]==changeTime][self.dataProcessors[1].parInfo['parameter']]
+                            self.inGraph.plot(changeTime-row['preChangeTime'],changeY.values[0], color=line.get_color(), alpha=opacity, marker="d")
+                            #self.inGraph.vlines(changeTime-row['preChangeTime'], ymin=self.inGraph.get_ylim()[0], ymax=self.inGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
                             handles, labels = self.inGraph.get_legend_handles_labels()
                             self.inGraph.legend(handles=handles[-5:], loc='lower left')
         
@@ -294,7 +300,10 @@ class createPlotWindow():
                             ydata = data[self.dataProcessors[2].parInfo['parameter']]
                             xoffset = [x - row['preChangeTime'] for x in xdata]
                             line,  = self.postGraph.plot(xoffset, ydata, label='Change ' + Cid,color=color, alpha=opacity, linewidth=linewidth, linestyle='-')
-                            self.postGraph.vlines(changeTime-row['preChangeTime'], ymin=self.postGraph.get_ylim()[0], ymax=self.postGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
+                            changeY = data[data[timePar]==changeTime][self.dataProcessors[2].parInfo['parameter']]
+                            self.postGraph.plot(changeTime-row['preChangeTime'],changeY.values[0], color=line.get_color(), alpha=opacity, marker="d")
+
+                            #self.postGraph.vlines(changeTime-row['preChangeTime'], ymin=self.postGraph.get_ylim()[0], ymax=self.postGraph.get_ylim()[1], colors=line.get_color(), alpha=opacity, linewidth=linewidth, linestyle='dashed')
                             handles, labels = self.postGraph.get_legend_handles_labels()
                             self.postGraph.legend(handles=handles[-5:], loc='lower left')
             
@@ -319,8 +328,7 @@ class createPlotWindow():
             y2point = row['ItP']
             self.curv1.plot(xpoint,y1point, 'o', color=color)
             self.curv2.plot(xpoint,y2point, 'o', color=color)
-        
-
+            
         for pressureVal, row in timeDelayCurves.iterrows():
             pressure = pressureVal
             color = colorGroups[pressureVal][0]
@@ -329,17 +337,18 @@ class createPlotWindow():
                 curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),10)
                 ptiCurveParams = row['PtI']
                 curve1Y = curveFunc(curveX, *ptiCurveParams)
-                self.curv1.plot(curveX, curve1Y, 'r-', color=color, label='P:' + str(pressure) + ' fit: 1/(%5.3f + %5.3f*x + %5.3f*x^2 + %5.3f*x^3)' % tuple(ptiCurveParams))
-                self.curv1.set_ylim(curve1Y.min(), curve1Y.max())
+                self.curv1.plot(curveX, curve1Y, '-', color=color, label='P:' + str(pressure) + ' fit')
+                #self.curv1.set_ylim(curve1Y.min(), curve1Y.max())
                 self.curv1.legend(loc='upper right')
             if row.notna()['ItP']:
                 curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),10)
                 itpCurveParams = row['ItP']
                 curve2Y = curveFunc(curveX, *itpCurveParams)
-                self.curv2.plot(curveX, curve2Y, 'r-', color=color, label='P:' + str(pressure) + ' fit: 1/(%5.3f + %5.3f*x + %5.3f*x^2 + %5.3f*x^3)' % tuple(itpCurveParams))
-                self.curv2.set_ylim(curve2Y.min(), curve2Y.max())
+                self.curv2.plot(curveX, curve2Y, '-', color=color, label='P:' + str(pressure) + ' fit')
+                #self.curv2.set_ylim(curve2Y.min(), curve2Y.max())
                 self.curv2.legend(loc='upper right')
-
+        self.curv1.autoscale()
+        self.curv2.autoscale()
         plt.pause(updateDelay)
 
 
@@ -464,6 +473,112 @@ class controller():
                     print("Could not fit curve to ItP data (yet)")
             plotPanel.updateDelayCurves()
     
+    def fitPFfunctions(self):
+               
+        def PFfunction(data,a,b,c,d,e):
+            x=data[0]
+            y=data[1]
+            return (a+b*y+c*y**2+d*y**3)+(x*e)/(y**0.5)
+        
+        axXpar = 'Pressure'
+        axXunit = 'mbar'
+        axYpar = 'Flow'
+        axYunit = 'mln/min'
+        
+        PtIdata = []
+        ItPdata = []
+        for index, row in timeDelayData.iterrows():
+            PtIdataPoint = [row[axXpar],row[axYpar],row['PtI']]
+            ItPdataPoint = [row[axXpar],row[axYpar],row['ItP']]
+            PtIdata=PtIdata + [PtIdataPoint]
+            ItPdata=ItPdata + [ItPdataPoint]
+        
+        PtIx_data = []
+        PtIy_data = []
+        PtIz_data = []
+        for item in PtIdata:
+            PtIx_data.append(item[0])
+            PtIy_data.append(item[1])
+            PtIz_data.append(item[2])
+            
+        ItPx_data = []
+        ItPy_data = []
+        ItPz_data = []
+        for item in ItPdata:
+            ItPx_data.append(item[0])
+            ItPy_data.append(item[1])
+            ItPz_data.append(item[2])
+        
+        # get fit parameters from scipy curve fit
+        PtIparameters, PtIcovariance = optimize.curve_fit(PFfunction, [PtIx_data, PtIy_data], PtIz_data)
+        ItPparameters, ItPcovariance = optimize.curve_fit(PFfunction, [ItPx_data, ItPy_data], ItPz_data)
+        
+        timeDelay3DCurves[0,'PtI']=PtIparameters
+        timeDelay3DCurves[0,'ItP']=ItPparameters
+        timeDelay3DCurves[0,'Type']='3D'
+        
+       
+        # create surface function model
+        # setup data points for calculating surface model
+        PtImodel_x_data = np.linspace(min(PtIx_data), max(PtIx_data), 30)
+        PtImodel_y_data = np.linspace(min(PtIy_data), max(PtIy_data), 30)
+        ItPmodel_x_data = np.linspace(min(ItPx_data), max(ItPx_data), 30)
+        ItPmodel_y_data = np.linspace(min(ItPy_data), max(ItPy_data), 30)
+        
+        # create coordinate arrays for vectorized evaluations
+        PtIX, PtIY = np.meshgrid(PtImodel_x_data, PtImodel_y_data)
+        ItPX, ItPY = np.meshgrid(ItPmodel_x_data, ItPmodel_y_data)
+        # calculate Z coordinate array
+        PtIZ = PFfunction(np.array([PtIX, PtIY]), *PtIparameters)
+        ItPZ = PFfunction(np.array([ItPX, ItPY]), *ItPparameters)
+        
+        # setup figure object
+        fig = plt.figure(figsize=plt.figaspect(0.5))
+        
+        #---- PtI subplot
+        ax = fig.add_subplot(1, 2, 1, projection='3d')
+        ax.view_init(elev=30., azim=135)
+        # plot surface
+        ax.plot_surface(PtIX, PtIY, PtIZ, cmap="viridis_r", alpha=0.2)
+        ax.plot_wireframe(PtIX,PtIY,PtIZ, cmap="viridis_r", linewidth=1)
+        
+        for index in range(len(PtIx_data)):
+            x=PtIx_data[index]
+            y=PtIy_data[index]
+            z=PtIz_data[index]
+            zs = PFfunction([x,y],PtIparameters[0],PtIparameters[1],PtIparameters[2],PtIparameters[3],PtIparameters[4])
+            ax.plot([x,x],[y,y],[z,zs],color='red')
+            ax.plot(x,y,zs,marker="x", color='red')
+            
+        ax.scatter(PtIx_data, PtIy_data, PtIz_data, depthshade=False, alpha = 1, color='darkgreen')
+            
+        
+        ax.set_xlabel(axXpar + " ("+axXunit+")")
+        ax.set_ylabel(axYpar + " ("+axYunit+")")
+        ax.set_zlabel("PtI delay (s)")
+        
+        #---- ItP subplot
+        ax = fig.add_subplot(1, 2, 2, projection='3d')
+        ax.view_init(elev=30., azim=135)
+        # plot surface
+        ax.plot_surface(ItPX, ItPY, ItPZ, cmap="viridis_r", alpha=0.2)
+        ax.plot_wireframe(ItPX,ItPY,ItPZ, cmap="viridis_r", linewidth=1)
+        
+        for index in range(len(ItPx_data)):
+            x=ItPx_data[index]
+            y=ItPy_data[index]
+            z=ItPz_data[index]
+            zs = PFfunction([x,y],ItPparameters[0],ItPparameters[1],ItPparameters[2],ItPparameters[3],ItPparameters[4])
+            ax.plot([x,x],[y,y],[z,zs],color='red')
+            ax.plot(x,y,zs,marker="x", color='red')
+            
+        ax.scatter(ItPx_data, ItPy_data, ItPz_data, depthshade=False, alpha = 1, color='darkgreen')
+        
+        ax.set_xlabel(axXpar + " ("+axXunit+")")
+        ax.set_ylabel(axYpar + " ("+axYunit+")")
+        ax.set_zlabel("ItP delay (s)")
+        
+        plt.show()
     
     def setPressureConditions(self):
         newState = self.sequence.iloc[self.sequenceStep]
@@ -580,7 +695,7 @@ class controller():
             if startChangeTime!=0:
                 self.lastDetectionTime = startChangeTime
                 timeDelayData.at[self.sequenceStep,self.checkChangePositions[self.checkChangePos]]=startChangeTime
-                flagName = 'P'+str(self.sequence.iloc[self.sequenceStep]['P'])+'PO'+str(self.sequence.iloc[self.sequenceStep]['PO'])+'#'+str(self.sequence.iloc[self.sequenceStep]['It'])
+                flagName = 'P'+str(self.sequence.iloc[self.sequenceStep]['P'])+'O'+str(self.sequence.iloc[self.sequenceStep]['PO'])+'#'+str(self.sequence.iloc[self.sequenceStep]['It'])
                 timeDelayData.at[self.sequenceStep,'Cid']=flagName
 
                 if self.checkChangePos == 2:
@@ -602,7 +717,8 @@ class controller():
         now = datetime.now()
         dt_string = now.strftime("%d-%m-%Y_%H-%M-%S_")
         timeDelayData.to_csv(dt_string + 'timeDelayData.csv')
-        timeDelayCurves.to_csv(dt_string + 'timeDelayCurvePars.csv')     
+        timeDelayCurves.to_csv(dt_string + 'timeDelayCurvePars.csv')
+        timeDelay3DCurves.to_csv(dt_string +'timeDelay3DCurvePars.csv')  
     
     
     def work(self):
@@ -658,5 +774,6 @@ while controller.testActive:
 
 impulse.gas.setIOP(0,0,0,'Exhaust',0,'Exhaust',0,'Exhaust') # Stop gas flows
 impulse.heat.set(21) # Set the temperature back to RT
+controller.fitPFfunctions()
 controller.saveData() # Save the delay data to a file
 impulse.disconnect() # Close the connection with Impulse

@@ -8,9 +8,6 @@ This repository contains the following scripts:
 - ImpulsePySim
 >This is a script that simulates measurements with time delays for the Time delay curve characterization script. To run the characterization script with this simulator, make sure to disable the importing of the impulsePy module and enable the line below it.
 
-- Fit 3D function
->This script can load the timedelaydata.csv file that is saved by the time delay curve characterization script and will fit a 3D function to the data. Eventually the Time delay Calibration script will be updated to use this 3D function for the correction of the data.
-
 
 ## Dependencies
 In order to run the time delay characterization script, you will need to have the impulsePy module installed.
@@ -57,6 +54,4 @@ In line 12, the impulsePy module is imported. If you wish to run this script in 
 
 
 ## Known issues
-- Only 3 color schemes are set for the different NR pressure measurements, if measurements are done for more than 3 pressures, the list of color schemes should be made longer
-- The change graphs (middle) get squished more and more due to the vertical line in every graph getting longer
 - Assertion error randomly occurs, until this one is fixed, restart the kernel and run the script again
