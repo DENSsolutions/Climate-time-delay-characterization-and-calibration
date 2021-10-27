@@ -5,18 +5,35 @@ import math
 import os
 from pathlib import Path
 import scipy.interpolate
+import sys
+import PySimpleGUI as sg
+
+layout = [[sg.T("Please load the files below:")], [sg.Text("Impulse logfile: "), sg.Input(), sg.FileBrowse(key="-DATA-")], [sg.Text("Calibration file: "), sg.Input(), sg.FileBrowse(key="-CAL-")],[sg.Button("Process")]]
+
+###Building Window
+window = sg.Window('Load files', layout, size=(600,150))
+    
+while True:
+    event, values = window.read()
+    if event == sg.WIN_CLOSED or event=="Exit":
+        sys.exit("No files loaded.")
+    elif event == "Process":
+        window.close()
+        break
+
+if values['-DATA-']=="":
+    sys.exit("No Impulse file loaded.")
+else:
+    impulseLogfilePath = Path(values['-DATA-'])
+    
+if values['-CAL-'] != "":
+    timeDelayCalibrationPath = Path(values['-CAL-'])
+else:
+    timeDelayCalibrationPath = ""
 
 #############################################
-#                                           #
-#  Set your directories in the lines below  #
-#                                           #
-#############################################
+MSLogfilePath = ""
 
-impulseLogfilePath = Path("Data/FullTimeDelayScriptTest_Synchronized data.csv") # Change this location to the location of your impulse logfile
-MSLogfilePath =  "" # Leave empty if MS data is in the impulse logfile
-timeDelayCalibrationPath = Path("Data/10-08-2021_15-28-50_timeDelayCurvePars.csv") # Default curve parameters are used when left empty
-
-#############################################
 
 beforeTemParameters = ["TimeStamp", "Experiment time", "MFC1 Measured", "MFC1 Setpoint","MFC2 Measured", "MFC2 Setpoint","MFC3 Measured", "MFC3 Setpoint", "MixValve", "% Gas1 Measured", "% Gas2 Measured", "% Gas3 Measured", "% Gas1 Setpoint", "% Gas2 Setpoint", "PumpRotation",  "ActiveProgram"]
 inTemParameters = ["TimeStamp", "Experiment time", "Fnr", "Fnr Setpoint", "Temperature Setpoint","Temperature Measured", "Pin Measured", "Pin Setpoint", "Pout Measured", "Pout Setpoint", "Pnr (Calculated from Pin Pout)", "Pnr Setpoint","Measured power", "Pvac", "Relative power reference", "Relative power"]
@@ -33,17 +50,17 @@ if timeDelayCalibrationPath!="":
     afterCurveParameters = [float(i) for i in afterCurveParameters.strip("[]").strip().split(" ")]
     
 else:
-    print("Standard curve parameters used.")
-    beforeCurveParameters = [0.00537, 0.19851, -0.3538, 0.36659]
-    afterCurveParameters = [0.00767, 0.01736, 0.66376, -0.44175]
+    print("Default curve parameters used.")
+    beforeCurveParameters = [41.0706, 1184.39, -2288.09, 2533.44, 7.73936, 6.38112]
+    afterCurveParameters = [25.2776, 690.819, -572.967, 174.849, 10.0311, -20.8556]
+    
+def calculateBeforeOffset(P, F): # Calculates the time delay between before-TEM and inside-TEM
+    a,b,c,d,e,f = beforeCurveParameters
+    return f+ (P*e)* (1/(a+b*F+c*F**2+d*F**3))
 
-def calculateBeforeOffset(flowrate): # Calculates the time delay between before-TEM and inside-TEM
-    a,b,c,d = beforeCurveParameters
-    return 1/(a+b*flowrate+c*flowrate**2+d*flowrate**3)
-
-def calculateAfterOffset(flowrate): # Calculates the time delay between inside-TEM and after-TEM
-    a,b,c,d = afterCurveParameters
-    return 1/(a+b*flowrate+c*flowrate**2+d*flowrate**3)
+def calculateAfterOffset(P, F): # Calculates the time delay between inside-TEM and after-TEM
+    a,b,c,d,e,f = afterCurveParameters
+    return f+ (P*e)* (1/(a+b*F+c*F**2+d*F**3))
 
 #Load the Impulse logfile into a pandas dataframe
 allData = pd.read_csv(impulseLogfilePath, infer_datetime_format=True)
@@ -116,7 +133,8 @@ inTemData['Fnr RA'].fillna(inTemData['Fnr'], inplace=True) #Fill the missing Fnr
 #Correct beforeTemData
 beforeTemDataCorrected = beforeTemData.copy()
 beforeTemDataCorrected['Fnr RA']=inTemData['Fnr RA']
-beforeTemDataCorrected['Time correction (seconds)']=np.vectorize(calculateBeforeOffset)(beforeTemDataCorrected['Fnr RA'])
+beforeTemDataCorrected['Pressure']=inTemData['Pnr (Calculated from Pin Pout)']
+beforeTemDataCorrected['Time correction (seconds)']=np.vectorize(calculateBeforeOffset)(beforeTemDataCorrected['Pressure'],beforeTemDataCorrected['Fnr RA'])
 beforeTemDataCorrected['Time correction timedelta']= pd.to_timedelta(beforeTemDataCorrected['Time correction (seconds)'] ,'s')
 beforeTemDataCorrected['TimeStamp']= (pd.to_datetime(beforeTemDataCorrected['TimeStamp'].astype(str))+beforeTemDataCorrected['Time correction timedelta']).dt.time
 beforeTemDataCorrected['Experiment time']+=beforeTemDataCorrected['Time correction (seconds)']
@@ -128,21 +146,26 @@ if afterTemData is not None:
     afterTemDataCorrected = afterTemData.copy()
     if MSLogfilePath=="": #If the MS data was included in the Impulse logfile (same timestamps)
         afterTemDataCorrected['Fnr RA']=inTemData['Fnr RA']
+        afterTemDataCorrected['Pressure']=inTemData['Pnr (Calculated from Pin Pout)']
 
     if MSLogfilePath!="": #Different logfile for MS, so Fnr RA has to be interpolated
         # Interpolate Fnr RA to calculate offsets for MS data
         FnrRAInterp = scipy.interpolate.interp1d(inTemData['Experiment time'],inTemData['Fnr RA'])
-
+        PnrInterp = scipy.interpolate.interp1d(inTemData['Experiment time'],inTemData['Pnr (Calculated from Pin Pout)'])
+        
         #Crop MS logfile so that Experiment time values fall within interpolated range
         minTime = inTemData['Experiment time'].iloc[0]
         maxTime = inTemData['Experiment time'].iloc[-1]
+        print(f"mintime {minTime}, maxtime {maxTime}")
         afterTemDataCorrected=afterTemDataCorrected[afterTemDataCorrected['Experiment time']>minTime]
         afterTemDataCorrected=afterTemDataCorrected[afterTemDataCorrected['Experiment time']<maxTime]
 
         #Find the Fnr RA values for the MS timestamps
         afterTemDataCorrected['Fnr RA']=np.vectorize(FnrRAInterp)(afterTemDataCorrected['Experiment time'])
+        afterTemDataCorrected['Pressure']=np.vectorize(PnrInterp)(afterTemDataCorrected['Experiment time'])
+        
 
-    afterTemDataCorrected['Time correction (seconds)']=np.vectorize(calculateAfterOffset)(afterTemDataCorrected['Fnr RA'])
+    afterTemDataCorrected['Time correction (seconds)']=np.vectorize(calculateAfterOffset)(afterTemDataCorrected['Pressure'],afterTemDataCorrected['Fnr RA'])
     afterTemDataCorrected['Time correction timedelta']= pd.to_timedelta(afterTemDataCorrected['Time correction (seconds)'] ,'s')
     afterTemDataCorrected['TimeStamp']= (pd.to_datetime(afterTemDataCorrected['TimeStamp'].astype(str))-afterTemDataCorrected['Time correction timedelta']).dt.time
     afterTemDataCorrected['Experiment time']-=afterTemDataCorrected['Time correction (seconds)']
