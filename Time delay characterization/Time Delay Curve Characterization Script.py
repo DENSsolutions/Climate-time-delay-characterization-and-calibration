@@ -1,78 +1,90 @@
 """
 Time Delay Curve Characterization Script
-Version 1.9 - added 3d curve fitting
-Mon Oct 25 10:11:00 2021
+Version 1.10
+Oct 27 2021
 
 @author: Merijn
 """
 
+# Disable the impulsePy import and enable the ImpulsePySim import to use in simulation mode
+#import impulsePy as impulse
+import ImpulsePySim as impulse # Simulator
+
+# -------- You can change the test parameters below this line: --------
+
+temperature = 300 # The temperature at which all the measurements are taken
+
+pressureSetpoints = [600, 700, 800] # The Nano-Reactor pressures at which time delay measurements are taken. Adviced to set at least 3 pressures.
+pressureOffsetSetpoints = [700, 600, 500, 400] # The inlet-outlet pressure offsets at which time delay measurements are taken for each Pnr. Adviced to set at least 4 pressure offsets.
+iterations = 1 # Number of measurements per pressure offset
+
+# The two gas states that the script toggles between are defined below:
+gasStateA = [0.25, 'Reactor', 0, 'Exhaust', 5, 'Reactor']
+gasStateB = [1, 'Reactor', 0, 'Exhaust', 4.25, 'Reactor']
+
+# The next 3 dicts contain settings for the 3 parameters that are monitored:
+# Pre-TEM parameter info:
+prePar = {
+    "parameter": 'gas1FlowMeasured', # Change this if you want to track a different parameter
+    "position" : 0, # Do not change this
+    'rollingAverageWindow' : 3, # Rolling average window, increase if signal has a high noise level
+    "changeThreshold" : 0.01, # Treshold for the change-value above which the signal change is detected
+    "stableThreshold" : 0.008, # Treshold for the change-value under which the signal is considered stable
+    "minStableDuration" : 15, # Number of measurements that need to be under the stable treshold
+    "data" : impulse.gas.data # Do not change this
+    }
+# In-TEM parameter info:
+inPar = {
+    "parameter" : 'powerMeasured', # Change this if you want to track a different parameter
+    "position" : 1, # Do not change this
+    'rollingAverageWindow' : 10, # Rolling average window, increase if signal has a high noise level
+    "changeThreshold" : 0.002, # Treshold for the change-value above which the signal change is detected
+    "stableThreshold" : 0.001, # Treshold for the change-value under which the signal is considered stable
+    "minStableDuration" : 15, # Number of measurements that need to be under the stable treshold
+    "data" : impulse.heat.data # Do not change this
+    }
+# Post-TEM parameter info:
+postPar = {
+    "parameter" : 'Methane', # Change this if you want to track a different parameter
+    "position" : 2, # Do not change this
+    'rollingAverageWindow' : 20, # Rolling average window, increase if signal has a high noise level
+    "changeThreshold" : 0.2e-8, # Treshold for the change-value above which the signal change is detected
+    "stableThreshold" : 0.1e-8, # Treshold for the change-value under which the signal is considered stable
+    "minStableDuration" : 15, # Number of measurements that need to be under the stable treshold
+    "data" : impulse.gas.msdata # Do not change  this
+    }
+
+# -------- No need to change anything after this line --------
+
+
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 12, 'axes.linewidth':2, 'xtick.major.width':2, 'ytick.major.width':2})
-
-import impulsePy as impulse
-#import ImpulsePySim as impulse # Simulator
-
 from datetime import datetime
 from scipy import optimize
 import pandas as pd
 pd.options.mode.chained_assignment = None
 import numpy as np
 import seaborn as sns
-
 from sympy.solvers import solve
 from sympy import Symbol, sqrt
 
 
 updateDelay = 0.01
 
-# Parameters
-temperature = 300
-pressureSetpoints = [600, 700, 800]
-pressureOffsetSetpoints = [700, 600, 500, 400]
-iterations = 1 # Number of measurements per pressure offset
-
-gasStateA = [0.25, 'Reactor', 0, 'Exhaust', 5, 'Reactor']
-gasStateB = [1, 'Reactor', 0, 'Exhaust', 4.25, 'Reactor']
 gasStates = [gasStateA, gasStateB]
-
-prePar = {
-    "parameter": 'gas1FlowMeasured',
-    "position" : 0, #Do not change
-    'rollingAverageWindow' : 3,
-    "changeThreshold" : 0.01,
-    "stableThreshold" : 0.008,
-    "minStableDuration" : 15,
-    "data" : impulse.gas.data #Do not change
-    }
-
-inPar = {
-    "parameter" : 'powerMeasured',
-    "position" : 1, #Do not change
-    'rollingAverageWindow' : 10,
-    "changeThreshold" : 0.002,
-    "stableThreshold" : 0.001,
-    "minStableDuration" : 15,
-    "data" : impulse.heat.data #Do not change
-    }
-
-postPar = {
-    "parameter" : 'Methane',
-    "position" : 2, #Do not change
-    'rollingAverageWindow' : 20,
-    "changeThreshold" : 0.2e-8,
-    "stableThreshold" : 0.1e-8,
-    "minStableDuration" : 15,
-    "data" : impulse.gas.msdata #Do not change 
-    }
-
 allParInfo = [prePar, inPar, postPar]
 
 rollingAverageCenter = True
 
 # Flow-Delay curve function
-def curveFunc(x, a, b, c, d):
+def FcurveFunc(x, a, b, c, d): #Old function to fit curves for the UI, these are not used for the calibration
     return 1/(a+b*x+c*x**2+d*x**3)
 
+def PFcurveFunc(data, a, b, c, d, e, f): #New function that is used for the calibration
+    P=data[0]
+    F=data[1]
+    return f + (P*e) * (1/(a+b*F+c*F**2+d*F**3))
+    
 # Calculate Inlet and Outlet setpoints
 def calcInletOutletPressures(Pnr, Poff):
     x = Symbol('x')
@@ -83,7 +95,6 @@ def calcInletOutletPressures(Pnr, Poff):
     Pin = int(round(Pin,0))
     Pout = int(round(Pout,0))
     return([Pin,Pout])
-
 
 timePar = 'experimentDuration'
 visibleHistory = 300 #Seconds visible in the real-time graphs
@@ -99,11 +110,10 @@ for idx, pressure in enumerate(pressureSetpoints):
 
 # Create time delay data and curve result DataFrames
 timeDelayData = pd.DataFrame(columns = ['Cid', 'Pressure', 'PressureOffset', 'Flow', 'setpointChangeTime', 'preChangeTime', 'inChangeTime', 'postChangeTime', 'PtI', 'ItP'])
-timeDelayCurves = pd.DataFrame(index = pressureSetpoints , columns = ['PtI', 'ItP'])
-timeDelayCurves['Type']='2D'
-timeDelay3DCurves = pd.DataFrame(columns = ['PtI', 'ItP'])
-timeDelay3DCurves['Type']='3D'
-
+timeDelayFCurves = pd.DataFrame(index = pressureSetpoints , columns = ['PtI', 'ItP'])
+timeDelayFCurves['Type']='2D'
+timeDelayPFCurves = pd.DataFrame(columns = ['PtI', 'ItP'])
+timeDelayPFCurves['Type']='3D'
 
 # Subscribe
 impulse.heat.data.subscribe()
@@ -114,23 +124,19 @@ impulse.sleep(3) # Wait 3 seconds to make sure that there are measurements avail
 
 class dataProcessor():
     def __init__(self, parInfo):
-        
         self.parInfo = parInfo
         self.state = "start"
-        
         self.dataSource = self.parInfo['data']
         self.processedData = self.dataSource.getDataFrame()
         while self.processedData.shape[0]<1:
             print(f"Not enough {parInfo['parameter']} data")
             impulse.sleep(1)
-            self.processedData = self.dataSource.getDataFrame()
-            
+            self.processedData = self.dataSource.getDataFrame()      
         self.processedData['Ra'] = self.processedData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=rollingAverageCenter).mean()
         self.processedData['absRaDiff']=abs(self.processedData['Ra'].diff())
         self.processedData['diff']=self.processedData[self.parInfo['parameter']].diff()
         self.processedData['diffSum']=self.processedData['diff'].rolling(window=self.parInfo['rollingAverageWindow'], center=rollingAverageCenter).sum()
-        self.processedData['absDiffSum']= abs(self.processedData['diffSum'])
-        
+        self.processedData['absDiffSum']= abs(self.processedData['diffSum'])      
         self.lastSNFilter = 0
         self.lastSNRA = 0
         self.lastSN = self.processedData.iloc[-1]['sequenceNumber']
@@ -138,7 +144,6 @@ class dataProcessor():
     def processNew(self):
         newSN = self.dataSource.getLastData()['sequenceNumber']
         newRows = newSN-self.lastSN
-
         if newRows > 0:
             newRowData = self.dataSource.getDataFrame(-(newRows+20)) # Grab extra rows to make sure that there is no missing rows due to new measurements since newSN was checked
             newRowData['Ra'] = newRowData[self.parInfo['parameter']].rolling(window=self.parInfo['rollingAverageWindow'], win_type='triang', center=rollingAverageCenter).mean()
@@ -329,26 +334,44 @@ class createPlotWindow():
             self.curv1.plot(xpoint,y1point, 'o', color=color)
             self.curv2.plot(xpoint,y2point, 'o', color=color)
             
-        for pressureVal, row in timeDelayCurves.iterrows():
+        for pressureVal, row in timeDelayFCurves.iterrows():
             pressure = pressureVal
             color = colorGroups[pressureVal][0]
             curveDataOrdered = timeDelayData.sort_values(by="Flow", ascending=True)
             if row.notna()['PtI']:
-                curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),10)
+                curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),20)
                 ptiCurveParams = row['PtI']
-                curve1Y = curveFunc(curveX, *ptiCurveParams)
+                curve1Y = FcurveFunc(curveX, *ptiCurveParams)
                 self.curv1.plot(curveX, curve1Y, '-', color=color, label='P:' + str(pressure) + ' fit')
                 #self.curv1.set_ylim(curve1Y.min(), curve1Y.max())
                 self.curv1.legend(loc='upper right')
             if row.notna()['ItP']:
-                curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),10)
+                curveX = np.linspace(curveDataOrdered['Flow'].min(),curveDataOrdered['Flow'].max(),20)
                 itpCurveParams = row['ItP']
-                curve2Y = curveFunc(curveX, *itpCurveParams)
+                curve2Y = FcurveFunc(curveX, *itpCurveParams)
                 self.curv2.plot(curveX, curve2Y, '-', color=color, label='P:' + str(pressure) + ' fit')
                 #self.curv2.set_ylim(curve2Y.min(), curve2Y.max())
                 self.curv2.legend(loc='upper right')
+
         self.curv1.autoscale()
         self.curv2.autoscale()
+
+        margin = 0.1
+        
+        ptiHi = timeDelayData['PtI'].max()
+        ptiLo = timeDelayData['PtI'].min()
+        ptiH = ptiHi-ptiLo
+        ptiTop = ptiHi+ptiH*margin
+        ptiBottom = ptiLo-ptiH*margin
+        self.curv1.set_ylim(ptiBottom,ptiTop)
+
+        itpHi = timeDelayData['ItP'].max()
+        itpLo = timeDelayData['ItP'].min()
+        itpH = itpHi-itpLo
+        itpTop = itpHi+itpH*margin
+        itpBottom = itpLo-itpH*margin
+        self.curv2.set_ylim(itpBottom,itpTop)
+
         plt.pause(updateDelay)
 
 
@@ -462,24 +485,18 @@ class controller():
                 ptiData = pressureDelayDataOrdered["PtI"].tolist()
                 itpData = pressureDelayDataOrdered["ItP"].tolist()
                 try:
-                    self.ptiCurveParams, ptiCurveCovar = optimize.curve_fit(curveFunc, flowData, ptiData, maxfev=1000)
-                    timeDelayCurves.loc[pressure,'PtI']=self.ptiCurveParams
+                    self.ptiCurveParams, ptiCurveCovar = optimize.curve_fit(FcurveFunc, flowData, ptiData, maxfev=1000)
+                    timeDelayFCurves.loc[pressure,'PtI']=self.ptiCurveParams
                 except:
                     print("Could not fit curve to PtI data (yet)")
                 try:
-                    self.itpCurveParams, itpCurveCovar = optimize.curve_fit(curveFunc, flowData, itpData, maxfev=1000)
-                    timeDelayCurves.loc[pressure,'ItP']=self.itpCurveParams
+                    self.itpCurveParams, itpCurveCovar = optimize.curve_fit(FcurveFunc, flowData, itpData, maxfev=1000)
+                    timeDelayFCurves.loc[pressure,'ItP']=self.itpCurveParams
                 except:
                     print("Could not fit curve to ItP data (yet)")
             plotPanel.updateDelayCurves()
     
-    def fitPFfunctions(self):
-               
-        def PFfunction(data,a,b,c,d,e):
-            x=data[0]
-            y=data[1]
-            return (a+b*y+c*y**2+d*y**3)+(x*e)/(y**0.5)
-        
+    def fitPFfunctions(self):    
         axXpar = 'Pressure'
         axXunit = 'mbar'
         axYpar = 'Flow'
@@ -509,35 +526,31 @@ class controller():
             ItPy_data.append(item[1])
             ItPz_data.append(item[2])
         
-        # get fit parameters from scipy curve fit
-        PtIparameters, PtIcovariance = optimize.curve_fit(PFfunction, [PtIx_data, PtIy_data], PtIz_data)
-        ItPparameters, ItPcovariance = optimize.curve_fit(PFfunction, [ItPx_data, ItPy_data], ItPz_data)
+        # Fit the function to the datasets
+        PtIparameters, PtIcovariance = optimize.curve_fit(PFcurveFunc, [PtIx_data, PtIy_data], PtIz_data)
+        ItPparameters, ItPcovariance = optimize.curve_fit(PFcurveFunc, [ItPx_data, ItPy_data], ItPz_data)
         
-        timeDelay3DCurves[0,'PtI']=PtIparameters
-        timeDelay3DCurves[0,'ItP']=ItPparameters
-        timeDelay3DCurves[0,'Type']='3D'
-        
+        timeDelayPFCurves['PtI']=[PtIparameters]
+        timeDelayPFCurves['ItP']=[ItPparameters]
+        timeDelayPFCurves['Type']='3D'
        
-        # create surface function model
-        # setup data points for calculating surface model
         PtImodel_x_data = np.linspace(min(PtIx_data), max(PtIx_data), 30)
         PtImodel_y_data = np.linspace(min(PtIy_data), max(PtIy_data), 30)
         ItPmodel_x_data = np.linspace(min(ItPx_data), max(ItPx_data), 30)
         ItPmodel_y_data = np.linspace(min(ItPy_data), max(ItPy_data), 30)
         
-        # create coordinate arrays for vectorized evaluations
         PtIX, PtIY = np.meshgrid(PtImodel_x_data, PtImodel_y_data)
         ItPX, ItPY = np.meshgrid(ItPmodel_x_data, ItPmodel_y_data)
-        # calculate Z coordinate array
-        PtIZ = PFfunction(np.array([PtIX, PtIY]), *PtIparameters)
-        ItPZ = PFfunction(np.array([ItPX, ItPY]), *ItPparameters)
+
+        PtIZ = PFcurveFunc(np.array([PtIX, PtIY]), *PtIparameters)
+        ItPZ = PFcurveFunc(np.array([ItPX, ItPY]), *ItPparameters)
         
-        # setup figure object
         fig = plt.figure(figsize=plt.figaspect(0.5))
         
-        #---- PtI subplot
+        # PtI subplot
         ax = fig.add_subplot(1, 2, 1, projection='3d')
         ax.view_init(elev=30., azim=135)
+        ax.set_title('PtI Delay Function')
         # plot surface
         ax.plot_surface(PtIX, PtIY, PtIZ, cmap="viridis_r", alpha=0.2)
         ax.plot_wireframe(PtIX,PtIY,PtIZ, cmap="viridis_r", linewidth=1)
@@ -546,13 +559,12 @@ class controller():
             x=PtIx_data[index]
             y=PtIy_data[index]
             z=PtIz_data[index]
-            zs = PFfunction([x,y],PtIparameters[0],PtIparameters[1],PtIparameters[2],PtIparameters[3],PtIparameters[4])
+            zs = PFcurveFunc([x,y],PtIparameters[0],PtIparameters[1],PtIparameters[2],PtIparameters[3],PtIparameters[4],PtIparameters[5])
             ax.plot([x,x],[y,y],[z,zs],color='red')
             ax.plot(x,y,zs,marker="x", color='red')
             
         ax.scatter(PtIx_data, PtIy_data, PtIz_data, depthshade=False, alpha = 1, color='darkgreen')
             
-        
         ax.set_xlabel(axXpar + " ("+axXunit+")")
         ax.set_ylabel(axYpar + " ("+axYunit+")")
         ax.set_zlabel("PtI delay (s)")
@@ -560,6 +572,7 @@ class controller():
         #---- ItP subplot
         ax = fig.add_subplot(1, 2, 2, projection='3d')
         ax.view_init(elev=30., azim=135)
+        ax.set_title('ItP Delay Function')
         # plot surface
         ax.plot_surface(ItPX, ItPY, ItPZ, cmap="viridis_r", alpha=0.2)
         ax.plot_wireframe(ItPX,ItPY,ItPZ, cmap="viridis_r", linewidth=1)
@@ -568,7 +581,7 @@ class controller():
             x=ItPx_data[index]
             y=ItPy_data[index]
             z=ItPz_data[index]
-            zs = PFfunction([x,y],ItPparameters[0],ItPparameters[1],ItPparameters[2],ItPparameters[3],ItPparameters[4])
+            zs = PFcurveFunc([x,y],ItPparameters[0],ItPparameters[1],ItPparameters[2],ItPparameters[3],ItPparameters[4],ItPparameters[5])
             ax.plot([x,x],[y,y],[z,zs],color='red')
             ax.plot(x,y,zs,marker="x", color='red')
             
@@ -585,8 +598,6 @@ class controller():
         pressure = newState['P']
         pressureOffset = newState['PO']
         self.currentInletPressure, self.currentOutletPressure = calcInletOutletPressures(pressure,pressureOffset)
-        # self.currentInletPressure = pressure+(0.5*pressureOffset)
-        # self.currentOutletPressure = pressure-(0.5*pressureOffset)
         print(f"Setting pressures {self.currentInletPressure} - {self.currentOutletPressure}")
         plotPanel.setStatus(self.sequenceStep+1,self.sequence.shape[0],f"Setting pressures {self.currentInletPressure} - {self.currentOutletPressure}")
         gasMixState = gasStates[abs(newState['State']-1)] # This is ugly, but we need to set the opposite gas state first
@@ -708,17 +719,15 @@ class controller():
                     lastFound = 1
                 else:
                     print(f"Found change {self.checkChangePos} at time {startChangeTime}")
-                    self.checkChangePos +=1
-                
+                    self.checkChangePos +=1     
         return lastFound
 
     
     def saveData(self):
         now = datetime.now()
         dt_string = now.strftime("%d-%m-%Y_%H-%M-%S_")
-        timeDelayData.to_csv(dt_string + 'timeDelayData.csv')
-        timeDelayCurves.to_csv(dt_string + 'timeDelayCurvePars.csv')
-        timeDelay3DCurves.to_csv(dt_string +'timeDelay3DCurvePars.csv')  
+        #timeDelayData.to_csv(dt_string + 'timeDelayData.csv')
+        timeDelayPFCurves.to_csv(dt_string + 'timeDelayCalibration.csv')
     
     
     def work(self):

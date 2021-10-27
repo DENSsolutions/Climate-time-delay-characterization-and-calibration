@@ -14,21 +14,23 @@ import math
 
 initTime = dt.datetime.now() #- dt.timedelta(seconds=200)
 
-def ptiDelayFunction(pressure,flow):
-    a=8.35034861724877
-    b=-33.4641006043015
-    c=96.8105518087291
-    d=-102.588280016627
-    e=0.0178973167944745
-    return (a+b*flow+c*flow**2+d*flow**3)+(pressure*e)/(flow**0.5)
+def ptiDelayFunction(P,F):
+    a=41.0706
+    b=1184.39
+    c=-2288.09
+    d=2533.44
+    e=7.73936
+    f=6.38112
+    return f+ (P*e)* (1/(a+b*F+c*F**2+d*F**3))
 
-def itpDelayFunction(pressure,flow):
-    a=7.16071374011432
-    b=-345.935473623156
-    c=1175.93060732822
-    d=-1326.0053732864
-    e=0.0341923943348404
-    return (a+b*flow+c*flow**2+d*flow**3)+(pressure*e)/(flow**0.5)
+def itpDelayFunction(P,F):
+    a=25.2776
+    b=690.819
+    c=-572.967
+    d=174.849
+    e=10.0311
+    f=-20.8556
+    return f+ (P*e)* (1/(a+b*F+c*F**2+d*F**3))
 
 def waitForControl():
     sleep(1)
