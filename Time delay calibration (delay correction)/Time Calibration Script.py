@@ -8,7 +8,14 @@ import scipy.interpolate
 import sys
 import PySimpleGUI as sg
 
-layout = [[sg.T("Please load the files below:")], [sg.Text("Impulse logfile: "), sg.Input(), sg.FileBrowse(key="-DATA-")], [sg.Text("Calibration file: "), sg.Input(), sg.FileBrowse(key="-CAL-")],[sg.Button("Process")]]
+files = os.listdir('.')
+calibrationFilename = "timeDelayCalibration.csv"
+calibrationFile = ""
+for file in files:
+    if file.endswith(calibrationFilename):
+        calibrationFile=file
+
+layout = [[sg.T("Please load the files below:")], [sg.Text("Impulse logfile: "), sg.Input(), sg.FileBrowse(key="-DATA-")], [sg.Text("Calibration file: "), sg.Input(calibrationFile), sg.FileBrowse(key="-CAL-")],[sg.Button("Process")]]
 
 ###Building Window
 window = sg.Window('Load files', layout, size=(600,150))
@@ -29,9 +36,10 @@ else:
 if values['-CAL-'] != "":
     timeDelayCalibrationPath = Path(values['-CAL-'])
 else:
-    timeDelayCalibrationPath = ""
+    timeDelayCalibrationPath = calibrationFile
 
 #############################################
+
 MSLogfilePath = ""
 
 
@@ -201,4 +209,65 @@ if afterTemData is not None:
     afterTemDataCorrected = afterTemDataCorrected.sort_values(by = 'Experiment time')
     syncData = pd.merge_asof(syncData, afterTemDataCorrected, on = 'Experiment time')
 
+def plotResults():
+    preTEMparameter ='MFC1 Measured'
+    inTEMparameter = 'Measured power'
+    postTEMparameter = 'Channel#1'
+    
+    
+    from mpl_toolkits.axes_grid1 import host_subplot
+    import mpl_toolkits.axisartist as AA
+    import matplotlib.pyplot as plt
+    
+    host = host_subplot(111, axes_class=AA.Axes)
+    plt.subplots_adjust(right=0.75)
+    
+    par1 = host.twinx()
+    par2 = host.twinx()
+    
+    offset = 60
+    new_fixed_axis = par2.get_grid_helper().new_fixed_axis
+    par2.axis["right"] = new_fixed_axis(loc="right",
+                                        axes=par2,
+                                        offset=(offset, 0))
+    
+    par1.axis["right"].toggle(all=True)
+    par2.axis["right"].toggle(all=True)
+    
+    host.set_xlabel("Experiment Time")
+    host.set_ylabel(inTEMparameter)
+    par1.set_ylabel(postTEMparameter)
+    par2.set_ylabel(preTEMparameter)
+    
+    p1, = host.plot(inTemData['Experiment time'],inTemData[inTEMparameter], label=inTEMparameter)
+    
+    p2, = par1.plot(afterTemDataCorrected['Experiment time'],afterTemDataCorrected[postTEMparameter],label=f"{postTEMparameter} corrected")
+    p2o, = par1.plot(afterTemData['Experiment time'],afterTemData[postTEMparameter], label=f"{postTEMparameter} original", color=p2.get_color(), linestyle="dotted", alpha=0.4)
+    
+    p3, = par2.plot(beforeTemDataCorrected['Experiment time'],beforeTemDataCorrected[preTEMparameter], label=f"{preTEMparameter} corrected")
+    p3o, = par2.plot(beforeTemData['Experiment time'],beforeTemData[preTEMparameter], label=f"{preTEMparameter} original", color=p3.get_color(), linestyle="dotted", alpha=0.4)
+    
+    host.grid(b=True, which='major', color='#666666', linestyle='-')
+    host.minorticks_on()
+    host.grid(b=True, which='minor', color='#999999', linestyle='-', alpha=0.2)
+    
+    
+    host.axis["left"].label.set_color(p1.get_color())
+    par1.axis["right"].label.set_color(p2.get_color())
+    par2.axis["right"].label.set_color(p3.get_color())
+    
+    host.legend()
+    host.autoscale()
+    host.set_xlim(inTemData['Experiment time'].min(),inTemData['Experiment time'].max())
+    
+    host.toolbar_visible = False
+    host.header_visible = False
+    host.resizable = True
+    
+    host.title.set_text('Calibration result')
+    
+    plt.draw()
+    plt.show()
+
+plotResults()
 syncData.to_csv((correctedDataFolder+'/'+experimentName+'_corrected-synchronized.csv'), index=False)

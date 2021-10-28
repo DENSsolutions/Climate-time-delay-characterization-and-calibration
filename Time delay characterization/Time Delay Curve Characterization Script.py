@@ -7,8 +7,8 @@ Oct 27 2021
 """
 
 # Disable the impulsePy import and enable the ImpulsePySim import to use in simulation mode
-#import impulsePy as impulse
-import ImpulsePySim as impulse # Simulator
+import impulsePy as impulse
+#import ImpulsePySim as impulse # Simulator
 
 # -------- You can change the test parameters below this line: --------
 
